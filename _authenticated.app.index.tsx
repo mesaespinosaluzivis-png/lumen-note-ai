@@ -1,7 +1,4 @@
-import {
-  createFileRoute,
-  Link,
-} from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   FileAudio,
   Plus,
@@ -328,3 +325,4 @@ function StatCard({
     </div>
   );
 }
+
