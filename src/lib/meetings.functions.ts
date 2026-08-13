@@ -1,376 +1,284 @@
-import { createServerFn } from '@tanstack/start';
-import { createServerClient } from '@/integrations/supabase/client.server';
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-export const getDashboardMeetings = createServerFn({ method: 'GET' })
-  .handler(async () => {
-    const supabase = createServerClient();
+export const listMeetings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase } = context;
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error('No autorizado');
-    }
-
-    const userId = user.id;
-
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('plan, minutes_used, minutes_limit')
-      .eq('id', userId)
-      .single();
-
-    if (profileError) {
-      throw new Error(`Error obteniendo perfil: ${profileError.message}`);
-    }
-
-    const { data: meetings, error: meetingsError } = await supabase
-      .from('meetings')
+    const { data, error } = await supabase
+      .from("meetings")
       .select(
-        'id, title, created_at, duration_seconds, status, audio_file_path'
+        "id,title,status,duration_sec,language,source,created_at,summary,participants_count",
       )
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(100);
 
-    if (meetingsError) {
-      throw new Error(
-        `Error obteniendo reuniones: ${meetingsError.message}`
-      );
+    if (error) {
+      throw new Error(error.message);
     }
-
-    const meetingIds = (meetings ?? []).map((meeting) => meeting.id);
-
-    let summaries: Array<{
-      meeting_id: string;
-      summary: string;
-    }> = [];
-
-    if (meetingIds.length > 0) {
-      const { data, error: summariesError } = await supabase
-        .from('ai_summaries')
-        .select('meeting_id, summary')
-        .in('meeting_id', meetingIds);
-
-      if (summariesError) {
-        throw new Error(
-          `Error obteniendo resúmenes: ${summariesError.message}`
-        );
-      }
-
-      summaries = data ?? [];
-    }
-
-    const summaryMap = new Map(
-      summaries.map((summary) => [summary.meeting_id, summary.summary])
-    );
 
     return {
-      meetings: (meetings ?? []).map((meeting) => ({
-        id: meeting.id,
-        title: meeting.title,
-        created_at: meeting.created_at,
-        duration_seconds: meeting.duration_seconds,
-        status: meeting.status as
-          | 'pending'
-          | 'processing'
-          | 'completed'
-          | 'failed',
-        summary_preview: summaryMap.get(meeting.id)?.slice(0, 160),
-      })),
-      totalMinutesUsed: profile.minutes_used ?? 0,
-      minutesLimit: profile.minutes_limit ?? 20,
-      plan: profile.plan ?? 'free',
+      meetings: data ?? [],
     };
   });
 
-export const getMeetingDetails = createServerFn({ method: 'GET' })
-  .validator((d: { id: string }) => d)
-  .handler(async ({ data }) => {
-    const supabase = createServerClient();
+export const getProfile = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    await supabase.rpc("ensure_month_reset", {
+      _user_id: userId,
+    });
 
-    if (userError || !user) {
-      throw new Error('No autorizado');
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
     }
 
-    const { data: meeting, error: meetingError } = await supabase
-      .from('meetings')
-      .select(
-        'id, title, created_at, duration_seconds, status, language, audio_file_path'
-      )
-      .eq('id', data.id)
-      .eq('user_id', user.id)
-      .single();
+    return {
+      profile: data,
+    };
+  });
 
-    if (meetingError || !meeting) {
-      throw new Error(
-        meetingError?.message || 'Reunión no encontrada'
-      );
-    }
+export const getAccountAccess = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId, claims } = context;
 
-    const [
-      transcriptionResult,
-      summaryResult,
-      tasksResult,
-      decisionsResult,
-    ] = await Promise.all([
+    const [subscriptionResult, rolesResult] = await Promise.all([
       supabase
-        .from('transcriptions')
-        .select('id, content')
-        .eq('meeting_id', data.id)
-        .maybeSingle(),
-
-      supabase
-        .from('ai_summaries')
-        .select('id, summary, key_points, action_items')
-        .eq('meeting_id', data.id)
-        .maybeSingle(),
-
-      supabase
-        .from('tasks')
+        .from("subscriptions")
         .select(
-          'id, description, completed, due_date, assignee'
+          "plan_type,status,provider,current_period_start,current_period_end",
         )
-        .eq('meeting_id', data.id)
-        .eq('user_id', user.id),
+        .eq("user_id", userId)
+        .order("current_period_end", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
 
       supabase
-        .from('decisions')
-        .select('id, description')
-        .eq('meeting_id', data.id),
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId),
     ]);
 
-    if (transcriptionResult.error) {
-      throw new Error(
-        `Error obteniendo transcripción: ${transcriptionResult.error.message}`
-      );
+    if (subscriptionResult.error) {
+      throw new Error(subscriptionResult.error.message);
     }
 
-    if (summaryResult.error) {
-      throw new Error(
-        `Error obteniendo resumen: ${summaryResult.error.message}`
-      );
-    }
-
-    if (tasksResult.error) {
-      throw new Error(
-        `Error obteniendo tareas: ${tasksResult.error.message}`
-      );
-    }
-
-    if (decisionsResult.error) {
-      throw new Error(
-        `Error obteniendo decisiones: ${decisionsResult.error.message}`
-      );
+    if (rolesResult.error) {
+      throw new Error(rolesResult.error.message);
     }
 
     return {
-      meeting: {
-        id: meeting.id,
-        title: meeting.title,
-        created_at: meeting.created_at,
-        duration_seconds: meeting.duration_seconds,
-        status: meeting.status,
-        language: meeting.language,
-        audio_file_path: meeting.audio_file_path,
-      },
-      transcription: transcriptionResult.data ?? null,
-      summary: summaryResult.data
-        ? {
-            id: summaryResult.data.id,
-            summary: summaryResult.data.summary,
-            key_points: Array.isArray(summaryResult.data.key_points)
-              ? summaryResult.data.key_points
-              : [],
-            action_items: Array.isArray(summaryResult.data.action_items)
-              ? summaryResult.data.action_items
-              : [],
-          }
-        : null,
-      tasks: tasksResult.data ?? [],
-      decisions: decisionsResult.data ?? [],
+      email: (claims as { email?: string } | undefined)?.email ?? null,
+      userId,
+      subscription: subscriptionResult.data ?? null,
+      roles: (rolesResult.data ?? []).map(
+        (item: { role: string }) => item.role,
+      ),
     };
   });
 
-export const uploadAudioAndProcess = createServerFn({ method: 'POST' })
-  .validator((data: FormData) => data)
-  .handler(async ({ data }) => {
-    const supabase = createServerClient();
+export const updateProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        display_name: z.string().min(1).max(120).optional(),
+        language: z.enum(["en", "es", "fr", "it"]).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from("profiles")
+      .update(data)
+      .eq("user_id", userId);
 
-    if (userError || !user) {
-      throw new Error('No autorizado');
+    if (error) {
+      throw new Error(error.message);
     }
 
-    const file = data.get('audio');
+    return {
+      ok: true,
+    };
+  });
 
-    if (!(file instanceof File)) {
-      throw new Error('No se recibió ningún archivo de audio');
-    }
-
-    const title =
-      (data.get('title') as string | null)?.trim() ||
-      'Nueva Reunión';
-
-    const language =
-      (data.get('language') as string | null)?.trim() || 'es';
-
-    const originalName = file.name || '';
-    const extensionMatch = originalName.match(/\.([a-zA-Z0-9]+)$/);
-
-    const extension = extensionMatch
-      ? extensionMatch[1].toLowerCase()
-      : 'm4a';
+export const createMeeting = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        title: z.string().min(1).max(200).default("Nueva reunión"),
+        source: z.enum(["record", "upload"]),
+        file_ext: z.string().min(1).max(10),
+      })
+      .parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase, userId } = context;
 
     const meetingId = crypto.randomUUID();
 
-    const filePath = `${user.id}/${meetingId}.${extension}`;
+    const safeExt =
+      data.file_ext.replace(/[^a-z0-9]/gi, "").toLowerCase() || "webm";
 
-    const contentType =
-      file.type ||
-      (extension === 'm4a'
-        ? 'audio/mp4'
-        : 'application/octet-stream');
+    const path = `${userId}/${meetingId}.${safeExt}`;
 
-    const { data: meeting, error: insertError } = await supabase
-      .from('meetings')
-      .insert({
-        id: meetingId,
-        user_id: user.id,
-        title,
-        language,
-        status: 'processing',
-        audio_file_path: filePath,
-      })
-      .select('id')
-      .single();
+    const { error: insertError } = await supabase.from("meetings").insert({
+      id: meetingId,
+      user_id: userId,
+      title: data.title,
+      source: data.source,
+      audio_path: path,
+      status: "uploading",
+    });
 
-    if (insertError || !meeting) {
-      throw new Error(
-        `Error creando reunión: ${insertError?.message || 'desconocido'}`
-      );
+    if (insertError) {
+      throw new Error(insertError.message);
     }
 
-    const { error: uploadError } = await supabase.storage
-      .from('audio-files')
-      .upload(filePath, file, {
-        contentType,
-        upsert: false,
-      });
+    const { data: signed, error: signError } = await supabase.storage
+      .from("meeting-audio")
+      .createSignedUploadUrl(path);
 
-    if (uploadError) {
-      await supabase
-        .from('meetings')
-        .delete()
-        .eq('id', meetingId)
-        .eq('user_id', user.id);
-
-      throw new Error(
-        `Error subiendo audio a Storage: ${uploadError.message}`
-      );
-    }
-
-    const { error: processError } = await supabase.functions.invoke(
-      'process-audio',
-      {
-        body: {
-          meeting_id: meetingId,
-          filePath,
-        },
-      }
-    );
-
-    if (processError) {
-      await supabase
-        .from('meetings')
-        .update({
-          status: 'failed',
-        })
-        .eq('id', meetingId)
-        .eq('user_id', user.id);
-
-      throw new Error(
-        `Error iniciando procesamiento de audio: ${processError.message}`
-      );
+    if (signError) {
+      throw new Error(signError.message);
     }
 
     return {
-      meetingId: meeting.id,
+      meetingId,
+      path,
+      uploadUrl: signed.signedUrl,
+      token: signed.token,
     };
   });
 
-export const toggleTaskAction = createServerFn({ method: 'POST' })
-  .validator(
-    (d: { taskId: string; completed: boolean }) => d
+export const getMeeting = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        id: z.string().uuid(),
+      })
+      .parse(input),
   )
-  .handler(async ({ data }) => {
-    const supabase = createServerClient();
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const { data: meeting, error } = await supabase
+      .from("meetings")
+      .select("*")
+      .eq("id", data.id)
+      .maybeSingle();
 
-    if (userError || !user) {
-      throw new Error('No autorizado');
+    if (error) {
+      throw new Error(error.message);
     }
 
-    const { error } = await supabase
-      .from('tasks')
-      .update({
-        completed: data.completed,
+    if (!meeting) {
+      throw new Error("Reunión no encontrada");
+    }
+
+    const { data: tasks, error: tasksError } = await supabase
+      .from("meeting_tasks")
+      .select("*")
+      .eq("meeting_id", data.id)
+      .order("position");
+
+    if (tasksError) {
+      throw new Error(tasksError.message);
+    }
+
+    return {
+      meeting,
+      tasks: tasks ?? [],
+    };
+  });
+
+export const deleteMeeting = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        id: z.string().uuid(),
       })
-      .eq('id', data.taskId)
-      .eq('user_id', user.id);
+      .parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
 
-    if (error) {
-      throw new Error(
-        `Error actualizando tarea: ${error.message}`
-      );
+    const { data: meeting, error: meetingError } = await supabase
+      .from("meetings")
+      .select("audio_path")
+      .eq("id", data.id)
+      .maybeSingle();
+
+    if (meetingError) {
+      throw new Error(meetingError.message);
     }
 
-    return {
-      success: true,
-    };
-  });
+    if (meeting?.audio_path) {
+      const { error: storageError } = await supabase.storage
+        .from("meeting-audio")
+        .remove([meeting.audio_path]);
 
-export const deleteMeetingAction = createServerFn({ method: 'POST' })
-  .validator((d: { meetingId: string }) => d)
-  .handler(async ({ data }) => {
-    const supabase = createServerClient();
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      throw new Error('No autorizado');
+      if (storageError) {
+        throw new Error(storageError.message);
+      }
     }
 
     const { error } = await supabase
-      .from('meetings')
+      .from("meetings")
       .delete()
-      .eq('id', data.meetingId)
-      .eq('user_id', user.id);
+      .eq("id", data.id);
 
     if (error) {
-      throw new Error(
-        `Error eliminando reunión: ${error.message}`
-      );
+      throw new Error(error.message);
     }
 
     return {
-      success: true,
+      ok: true,
     };
   });
+
+export const toggleTask = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        done: z.boolean(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const { supabase } = context;
+
+    const { error } = await supabase
+      .from("meeting_tasks")
+      .update({
+        done: data.done,
+      })
+      .eq("id", data.id);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return {
+      ok: true,
+    };
+  });
+
