@@ -103,17 +103,9 @@ function MeetingsDashboard() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
-      <div className="mb-8 flex justify-center overflow-hidden rounded-2xl">
-        <div className="w-full max-w-md">
-          <LumenLogo />
-        </div>
-      </div>
-
       <header className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="font-mono-tech text-[10px] uppercase tracking-widest text-muted-foreground">
-            Lumen Note AI
-          </p>
+          <LumenLogo />
 
           <h1 className="mt-2 font-display text-4xl tracking-tight md:text-5xl">
             Tus reuniones
