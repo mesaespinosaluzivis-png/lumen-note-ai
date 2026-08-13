@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { LumenLogo } from "@/components/LumenLogo";
 
 type Meeting = {
   id: string;
@@ -102,6 +103,12 @@ function MeetingsDashboard() {
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-6 md:py-10">
+      <div className="mb-8 flex justify-center overflow-hidden rounded-2xl">
+        <div className="w-full max-w-md">
+          <LumenLogo />
+        </div>
+      </div>
+
       <header className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="font-mono-tech text-[10px] uppercase tracking-widest text-muted-foreground">
