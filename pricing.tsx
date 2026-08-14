@@ -1,16 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Sparkles, QrCode } from "lucide-react";
+import { Check, Sparkles, QrCode, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { getAllPaymentLinks } from "@/functions/payments.functions";
 
 export const Route = createFileRoute("/_authenticated/app/pricing")({
   component: PricingPage,
 });
 
+type PaymentLinks = {
+  starter: {
+    monthly: string;
+    annual: string;
+  };
+  pro: {
+    monthly: string;
+    annual: string;
+  };
+  premium: {
+    monthly: string;
+    annual: string;
+  };
+};
+
 type Plan = {
   name: string;
+  key?: keyof PaymentLinks;
   monthly?: number;
   annual?: number;
-  monthlyLink?: string;
-  annualLink?: string;
   description: string;
   popular?: boolean;
   features: string[];
@@ -31,10 +47,9 @@ const PLANS: Plan[] = [
   },
   {
     name: "Inicio",
+    key: "starter",
     monthly: 29,
     annual: 290,
-    monthlyLink: "https://tppay.me/msm6raqh",
-    annualLink: "https://tppay.me/msmky7oj",
     description: "Para comenzar a transformar tus reuniones.",
     features: [
       "Transcripción de reuniones",
@@ -46,10 +61,9 @@ const PLANS: Plan[] = [
   },
   {
     name: "Pro",
+    key: "pro",
     monthly: 69,
     annual: 690,
-    monthlyLink: "https://tppay.me/msmljh34",
-    annualLink: "https://tppay.me/msmlwjvn",
     description: "Para profesionales que necesitan más potencia.",
     popular: true,
     features: [
@@ -62,10 +76,9 @@ const PLANS: Plan[] = [
   },
   {
     name: "Premium",
+    key: "premium",
     monthly: 99,
     annual: 990,
-    monthlyLink: "https://tppay.me/msmm7tve",
-    annualLink: "https://tppay.me/msmmi8bw",
     description: "Para usuarios que necesitan máxima capacidad.",
     features: [
       "Todo lo incluido en Pro",
@@ -84,12 +97,45 @@ function getQrUrl(paymentLink: string) {
 }
 
 function PricingPage() {
+  const [paymentLinks, setPaymentLinks] =
+    useState<PaymentLinks | null>(null);
+
+  const [loadingLinks, setLoadingLinks] = useState(true);
+
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadPaymentLinks() {
+      try {
+        setLoadingLinks(true);
+        setError("");
+
+        const links = await getAllPaymentLinks();
+
+        setPaymentLinks(links);
+      } catch (err) {
+        console.error(err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los enlaces de pago.",
+        );
+      } finally {
+        setLoadingLinks(false);
+      }
+    }
+
+    void loadPaymentLinks();
+  }, []);
+
   return (
     <main className="min-h-screen bg-background px-4 py-10 text-foreground md:px-6 md:py-16">
       <div className="mx-auto max-w-7xl">
         <header className="mx-auto mb-10 max-w-2xl text-center">
           <div className="mb-3 flex items-center justify-center gap-2 text-primary">
             <Sparkles className="h-4 w-4" />
+
             <span className="font-mono-tech text-[10px] uppercase tracking-widest">
               Lumen Note AI
             </span>
@@ -105,9 +151,30 @@ function PricingPage() {
           </p>
         </header>
 
+        {loadingLinks && (
+          <div className="mb-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Cargando opciones de pago…
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-8 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-center text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {PLANS.map((plan) => (
-            <PlanCard key={plan.name} plan={plan} />
+            <PlanCard
+              key={plan.name}
+              plan={plan}
+              paymentLinks={
+                plan.key && paymentLinks
+                  ? paymentLinks[plan.key]
+                  : undefined
+              }
+            />
           ))}
         </div>
 
@@ -120,7 +187,16 @@ function PricingPage() {
   );
 }
 
-function PlanCard({ plan }: { plan: Plan }) {
+function PlanCard({
+  plan,
+  paymentLinks,
+}: {
+  plan: Plan;
+  paymentLinks?: {
+    monthly: string;
+    annual: string;
+  };
+}) {
   return (
     <article
       className={`relative flex flex-col rounded-2xl border bg-card p-6 ${
@@ -151,6 +227,7 @@ function PlanCard({ plan }: { plan: Plan }) {
             <span className="font-display text-4xl tracking-tight">
               Gratis
             </span>
+
             <p className="mt-1 text-xs text-muted-foreground">
               Sin costo
             </p>
@@ -161,6 +238,7 @@ function PlanCard({ plan }: { plan: Plan }) {
               <span className="font-display text-4xl tracking-tight">
                 ${plan.monthly?.toFixed(2)}
               </span>
+
               <span className="mb-1 text-sm text-muted-foreground">
                 USD /mes
               </span>
@@ -175,8 +253,12 @@ function PlanCard({ plan }: { plan: Plan }) {
 
       <div className="mt-6 space-y-3">
         {plan.features.map((feature) => (
-          <div key={feature} className="flex items-start gap-2.5">
+          <div
+            key={feature}
+            className="flex items-start gap-2.5"
+          >
             <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+
             <span className="text-sm text-foreground/90">
               {feature}
             </span>
@@ -200,31 +282,39 @@ function PlanCard({ plan }: { plan: Plan }) {
               </p>
             </div>
 
-            <img
-              src={getQrUrl(plan.monthlyLink!)}
-              alt={`QR de pago ${plan.name} mensual`}
-              width={220}
-              height={220}
-              className="mx-auto rounded-lg"
-            />
+            {paymentLinks?.monthly ? (
+              <>
+                <img
+                  src={getQrUrl(paymentLinks.monthly)}
+                  alt={`QR de pago ${plan.name} mensual`}
+                  width={220}
+                  height={220}
+                  className="mx-auto rounded-lg"
+                />
 
-            <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <QrCode className="h-3.5 w-3.5" />
-              Escanea para pagar
-            </div>
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <QrCode className="h-3.5 w-3.5" />
+                  Escanea para pagar
+                </div>
 
-            <a
-              href={plan.monthlyLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`mt-4 flex h-11 w-full items-center justify-center rounded-md text-sm font-medium transition ${
-                plan.popular
-                  ? "bg-primary text-primary-foreground hover:opacity-90"
-                  : "border border-border bg-background hover:bg-secondary"
-              }`}
-            >
-              Pagar {plan.name} mensual
-            </a>
+                <a
+                  href={paymentLinks.monthly}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`mt-4 flex h-11 w-full items-center justify-center rounded-md text-sm font-medium transition ${
+                    plan.popular
+                      ? "bg-primary text-primary-foreground hover:opacity-90"
+                      : "border border-border bg-background hover:bg-secondary"
+                  }`}
+                >
+                  Pagar {plan.name} mensual
+                </a>
+              </>
+            ) : (
+              <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
+                Cargando pago…
+              </div>
+            )}
           </div>
 
           {/* PAGO ANUAL */}
@@ -235,27 +325,35 @@ function PlanCard({ plan }: { plan: Plan }) {
               </p>
             </div>
 
-            <img
-              src={getQrUrl(plan.annualLink!)}
-              alt={`QR de pago ${plan.name} anual`}
-              width={220}
-              height={220}
-              className="mx-auto rounded-lg"
-            />
+            {paymentLinks?.annual ? (
+              <>
+                <img
+                  src={getQrUrl(paymentLinks.annual)}
+                  alt={`QR de pago ${plan.name} anual`}
+                  width={220}
+                  height={220}
+                  className="mx-auto rounded-lg"
+                />
 
-            <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <QrCode className="h-3.5 w-3.5" />
-              Escanea para pagar
-            </div>
+                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <QrCode className="h-3.5 w-3.5" />
+                  Escanea para pagar
+                </div>
 
-            <a
-              href={plan.annualLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-4 flex h-11 w-full items-center justify-center rounded-md bg-secondary text-sm font-medium transition hover:bg-secondary/70"
-            >
-              Pagar {plan.name} anual
-            </a>
+                <a
+                  href={paymentLinks.annual}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 flex h-11 w-full items-center justify-center rounded-md bg-secondary text-sm font-medium transition hover:bg-secondary/70"
+                >
+                  Pagar {plan.name} anual
+                </a>
+              </>
+            ) : (
+              <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
+                Cargando pago…
+              </div>
+            )}
           </div>
         </div>
       )}
