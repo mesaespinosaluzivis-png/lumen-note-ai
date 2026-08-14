@@ -26,26 +26,29 @@ type Meeting = {
 
 type Transcription = {
   id: string;
-  full_text: string | null;
+  full_text: string;
+  language: string;
   created_at: string | null;
 };
 
 type Summary = {
   id: string;
-  summary_text: string | null;
+  summary_text: string;
   key_points: unknown;
   created_at: string | null;
 };
 
 type Task = {
   id: string;
-  description: string | null;
-  status: string | null;
+  description: string;
+  status: string;
+  created_at: string | null;
 };
 
 type Decision = {
   id: string;
-  description: string | null;
+  description: string;
+  created_at: string | null;
 };
 
 function MeetingDetailPage() {
@@ -100,7 +103,7 @@ function MeetingDetailPage() {
         ] = await Promise.all([
           supabase
             .from("transcriptions")
-            .select("id,full_text,created_at")
+            .select("id,full_text,language,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -116,13 +119,13 @@ function MeetingDetailPage() {
 
           supabase
             .from("tasks")
-            .select("id,description,status")
+            .select("id,description,status,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
 
           supabase
             .from("decisions")
-            .select("id,description")
+            .select("id,description,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
         ]);
@@ -304,7 +307,7 @@ function MeetingDetailPage() {
                       {summary.key_points.map((point, index) => (
                         <li
                           key={index}
-                          className="rounded-lg border border-border bg-background p-3 text-xs leading-5"
+                          className="rounded-lg border border-border bg-background p-3 text-sm"
                         >
                           {typeof point === "string"
                             ? point
@@ -339,7 +342,7 @@ function MeetingDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="text-sm font-medium">
-                      {task.description || "Tarea"}
+                      Tarea
                     </h3>
 
                     {task.status && (
@@ -348,6 +351,12 @@ function MeetingDetailPage() {
                       </span>
                     )}
                   </div>
+
+                  {task.description && (
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {task.description}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -374,8 +383,14 @@ function MeetingDetailPage() {
                   className="rounded-xl border border-border bg-background p-4"
                 >
                   <h3 className="text-sm font-medium">
-                    {decision.description || "Decisión"}
+                    Decisión
                   </h3>
+
+                  {decision.description && (
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {decision.description}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -390,6 +405,10 @@ function MeetingDetailPage() {
         >
           {transcription?.full_text ? (
             <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
+              <div className="mb-3 text-xs text-muted-foreground">
+                Idioma: {transcription.language || "No especificado"}
+              </div>
+
               <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
                 {transcription.full_text}
               </p>
@@ -409,7 +428,9 @@ function MeetingDetailPage() {
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
-          disabled={!transcription?.full_text && !summary?.summary_text}
+          disabled={
+            !transcription?.full_text && !summary?.summary_text
+          }
           onClick={() => window.print()}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
         >
