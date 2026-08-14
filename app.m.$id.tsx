@@ -40,13 +40,11 @@ type Task = {
   id: string;
   description: string | null;
   status: string | null;
-  due_date: string | null;
 };
 
 type Decision = {
   id: string;
   description: string | null;
-  created_at: string | null;
 };
 
 function MeetingDetailPage() {
@@ -85,7 +83,9 @@ function MeetingDetailPage() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (meetingError) throw meetingError;
+        if (meetingError) {
+          throw meetingError;
+        }
 
         if (!meetingData) {
           throw new Error("No se encontró esta reunión.");
@@ -115,13 +115,13 @@ function MeetingDetailPage() {
 
           supabase
             .from("tasks")
-            .select("id,description,status,due_date")
+            .select("id,description,status")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
 
           supabase
             .from("decisions")
-            .select("id,description,created_at")
+            .select("id,description")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
         ]);
@@ -323,13 +323,6 @@ function MeetingDetailPage() {
                       </span>
                     )}
                   </div>
-
-                  {task.due_date && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Fecha límite:{" "}
-                      {new Date(task.due_date).toLocaleDateString("es")}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>
