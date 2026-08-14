@@ -1,35 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import {
+  AlertCircle,
   ArrowLeft,
+  CheckCircle2,
   FileAudio,
+  Loader2,
   Mic,
   Upload,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/app/new")({
   component: NewMeetingPage,
 });
-
-/**
- * Límites oficiales de Lumen Note AI por reunión:
- *
- * Inicio mensual: 20 minutos
- * Inicio anual:   20 minutos
- * Pro mensual:    1 hora
- * Pro anual:      1 hora
- * Premium mensual: 3 horas
- * Premium anual:   3 horas
- *
- * No existe plan Business.
- *
- * La validación definitiva de duración debe realizarse en backend,
- * antes de procesar el audio.
- */
 
 function NewMeetingPage() {
   const navigate = useNavigate();
@@ -46,9 +30,12 @@ function NewMeetingPage() {
     setError("");
     setMessage("");
 
-    if (!selectedFile) return;
+    if (!selectedFile) {
+      return;
+    }
 
     if (!selectedFile.type.startsWith("audio/")) {
+      setFile(null);
       setError("Selecciona un archivo de audio válido.");
       return;
     }
@@ -59,6 +46,7 @@ function NewMeetingPage() {
   function handleDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
+
     selectFile(event.dataTransfer.files?.[0] ?? null);
   }
 
@@ -67,11 +55,14 @@ function NewMeetingPage() {
     setMessage("");
 
     if (!file) {
-      setError("Selecciona o graba un archivo de audio.");
+      setError("Selecciona un archivo de audio.");
       return;
     }
 
     setUploading(true);
+
+    let meetingId: string | null = null;
+    let filePath: string | null = null;
 
     try {
       const {
@@ -80,22 +71,31 @@ function NewMeetingPage() {
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        throw new Error("Tu sesión ha expirado. Inicia sesión nuevamente.");
+        throw new Error(
+          "Tu sesión ha expirado. Inicia sesión nuevamente.",
+        );
       }
 
-      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-      const meetingId = crypto.randomUUID();
-      const filePath = `${user.id}/${meetingId}-${safeName}`;
+      const safeName =
+        file.name
+          .normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9.-]/g, "_") || "audio";
+
+      meetingId = crypto.randomUUID();
+      filePath = `${user.id}/${meetingId}-${safeName}`;
 
       const { error: uploadError } = await supabase.storage
         .from("audio-files")
         .upload(filePath, file, {
-          contentType: file.type || "audio/mpeg",
+          contentType: file.type || "application/octet-stream",
           upsert: false,
         });
 
       if (uploadError) {
-        throw new Error(uploadError.message);
+        throw new Error(
+          `No se pudo subir el audio: ${uploadError.message}`,
+        );
       }
 
       const { data: meeting, error: meetingError } = await supabase
@@ -110,10 +110,13 @@ function NewMeetingPage() {
         .single();
 
       if (meetingError || !meeting) {
-        await supabase.storage.from("audio-files").remove([filePath]);
+        await supabase.storage
+          .from("audio-files")
+          .remove([filePath]);
 
         throw new Error(
-          meetingError?.message || "No se pudo crear la reunión.",
+          meetingError?.message ||
+            "No se pudo crear la reunión.",
         );
       }
 
@@ -121,24 +124,32 @@ function NewMeetingPage() {
 
       const {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (!session?.access_token) {
+      if (sessionError || !session?.access_token) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
-        throw new Error("No se encontró el token de autenticación.");
+        throw new Error(
+          "No se encontró el token de autenticación.",
+        );
       }
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseAnonKey =
+        import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       if (!supabaseUrl || !supabaseAnonKey) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -146,7 +157,8 @@ function NewMeetingPage() {
         );
       }
 
-      const functionUrl = `${supabaseUrl}/functions/v1/process-audio`;
+      const functionUrl =
+        `${supabaseUrl}/functions/v1/process-audio`;
 
       const response = await fetch(functionUrl, {
         method: "POST",
@@ -166,24 +178,42 @@ function NewMeetingPage() {
       if (!response.ok) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
         throw new Error(
           result?.error ||
             result?.message ||
-            "No se pudo procesar el audio.",
+            `No se pudo procesar el audio. Código HTTP: ${response.status}`,
         );
       }
 
-      if (result?.success === false) {
+      if (!result || result.success !== true) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
         throw new Error(
-          result?.error || "El procesamiento del audio falló.",
+          result?.error ||
+            "El procesamiento del audio no confirmó éxito.",
+        );
+      }
+
+      if (result.meeting_id !== meeting.id) {
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meeting.id);
+
+        throw new Error(
+          "La respuesta del procesamiento no corresponde a esta reunión.",
         );
       }
 
@@ -194,7 +224,16 @@ function NewMeetingPage() {
         },
       });
     } catch (err) {
-      console.error(err);
+      console.error("Create meeting error:", err);
+
+      if (meetingId) {
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meetingId);
+      }
 
       setError(
         err instanceof Error
@@ -226,7 +265,8 @@ function NewMeetingPage() {
         </h1>
 
         <p className="mt-2 text-sm text-muted-foreground">
-          Lumen procesará la grabación y generará tu información inteligente.
+          Lumen procesará la grabación y generará tu información
+          inteligente.
         </p>
       </header>
 
@@ -252,7 +292,9 @@ function NewMeetingPage() {
         <div
           onDragOver={(event) => {
             event.preventDefault();
-            setDragging(true);
+            if (!uploading) {
+              setDragging(true);
+            }
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
@@ -272,7 +314,9 @@ function NewMeetingPage() {
 
           {file ? (
             <>
-              <h2 className="mt-5 text-sm font-semibold">{file.name}</h2>
+              <h2 className="mt-5 break-all text-sm font-semibold">
+                {file.name}
+              </h2>
 
               <p className="mt-1 text-xs text-muted-foreground">
                 {(file.size / 1024 / 1024).toFixed(2)} MB
@@ -281,7 +325,15 @@ function NewMeetingPage() {
               {!uploading && (
                 <button
                   type="button"
-                  onClick={() => setFile(null)}
+                  onClick={() => {
+                    setFile(null);
+                    setError("");
+                    setMessage("");
+
+                    if (inputRef.current) {
+                      inputRef.current.value = "";
+                    }
+                  }}
                   className="mt-4 text-xs font-medium text-primary hover:underline"
                 >
                   Cambiar archivo
@@ -316,9 +368,10 @@ function NewMeetingPage() {
             accept="audio/*"
             className="hidden"
             disabled={uploading}
-            onChange={(event) =>
-              selectFile(event.target.files?.[0] ?? null)
-            }
+            onChange={(event) => {
+              selectFile(event.target.files?.[0] ?? null);
+              event.target.value = "";
+            }}
           />
         </div>
 
@@ -330,18 +383,22 @@ function NewMeetingPage() {
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
-              Puedes utilizar una grabación de audio realizada previamente.
+              Puedes utilizar una grabación de audio realizada
+              previamente.
             </p>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2">
               <FileAudio className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Formatos de audio</span>
+              <span className="text-sm font-medium">
+                Formatos de audio
+              </span>
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
-              Selecciona un archivo de audio compatible con tu dispositivo.
+              Selecciona un archivo de audio compatible con tu
+              dispositivo.
             </p>
           </div>
         </div>
