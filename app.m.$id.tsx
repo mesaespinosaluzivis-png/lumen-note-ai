@@ -1,16 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  AlertCircle,
   ArrowLeft,
   CheckCircle2,
   Clock3,
+  Download,
   FileAudio,
+  FileText,
   ListTodo,
   Loader2,
-  AlertCircle,
-  FileText,
-  Download,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/app/m/$id")({
@@ -26,29 +26,29 @@ type Meeting = {
 
 type Transcription = {
   id: string;
-  full_text: string;
-  language: string;
+  full_text: string | null;
+  language: string | null;
   created_at: string | null;
 };
 
 type Summary = {
   id: string;
-  summary_text: string;
-  key_points: unknown;
+  summary_text: string | null;
+  key_points: string[] | null;
   created_at: string | null;
 };
 
 type Task = {
   id: string;
-  description: string;
-  status: string;
-  created_at: string | null;
+  title: string | null;
+  description: string | null;
+  status: string | null;
 };
 
 type Decision = {
   id: string;
-  description: string;
-  created_at: string | null;
+  title: string | null;
+  description: string | null;
 };
 
 function MeetingDetailPage() {
@@ -119,45 +119,56 @@ function MeetingDetailPage() {
 
           supabase
             .from("tasks")
-            .select("id,description,status,created_at")
+            .select("id,title,description,status")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
 
           supabase
             .from("decisions")
-            .select("id,description,created_at")
+            .select("id,title,description")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
         ]);
 
         if (transcriptionResult.error) {
-          console.warn(
-            "Transcription:",
-            transcriptionResult.error.message,
+          console.error(
+            "Error cargando transcripción:",
+            transcriptionResult.error,
           );
         }
 
         if (summaryResult.error) {
-          console.warn("Summary:", summaryResult.error.message);
+          console.error(
+            "Error cargando resumen:",
+            summaryResult.error,
+          );
         }
 
         if (tasksResult.error) {
-          console.warn("Tasks:", tasksResult.error.message);
+          console.error(
+            "Error cargando tareas:",
+            tasksResult.error,
+          );
         }
 
         if (decisionsResult.error) {
-          console.warn("Decisions:", decisionsResult.error.message);
+          console.error(
+            "Error cargando decisiones:",
+            decisionsResult.error,
+          );
         }
 
-        if (active) {
-          setMeeting(meetingData);
-          setTranscription(transcriptionResult.data ?? null);
-          setSummary(summaryResult.data ?? null);
-          setTasks(tasksResult.data ?? []);
-          setDecisions(decisionsResult.data ?? []);
+        if (!active) {
+          return;
         }
+
+        setMeeting(meetingData);
+        setTranscription(transcriptionResult.data ?? null);
+        setSummary(summaryResult.data ?? null);
+        setTasks(tasksResult.data ?? []);
+        setDecisions(decisionsResult.data ?? []);
       } catch (err) {
-        console.error(err);
+        console.error("Meeting detail error:", err);
 
         if (active) {
           setError(
@@ -296,7 +307,8 @@ function MeetingDetailPage() {
                 {summary.summary_text}
               </p>
 
-              {Array.isArray(summary.key_points) &&
+              {summary.key_points &&
+                Array.isArray(summary.key_points) &&
                 summary.key_points.length > 0 && (
                   <div>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -306,12 +318,10 @@ function MeetingDetailPage() {
                     <ul className="space-y-2">
                       {summary.key_points.map((point, index) => (
                         <li
-                          key={index}
-                          className="rounded-lg border border-border bg-background p-3 text-sm"
+                          key={`${index}-${point}`}
+                          className="rounded-lg bg-secondary/50 px-3 py-2 text-sm"
                         >
-                          {typeof point === "string"
-                            ? point
-                            : JSON.stringify(point)}
+                          {point}
                         </li>
                       ))}
                     </ul>
@@ -342,7 +352,7 @@ function MeetingDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="text-sm font-medium">
-                      Tarea
+                      {task.title || "Tarea"}
                     </h3>
 
                     {task.status && (
@@ -383,7 +393,7 @@ function MeetingDetailPage() {
                   className="rounded-xl border border-border bg-background p-4"
                 >
                   <h3 className="text-sm font-medium">
-                    Decisión
+                    {decision.title || "Decisión"}
                   </h3>
 
                   {decision.description && (
@@ -404,14 +414,18 @@ function MeetingDetailPage() {
           icon={<FileAudio className="h-4 w-4" />}
         >
           {transcription?.full_text ? (
-            <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
-              <div className="mb-3 text-xs text-muted-foreground">
-                Idioma: {transcription.language || "No especificado"}
-              </div>
+            <div className="space-y-3">
+              {transcription.language && (
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  Idioma: {transcription.language}
+                </p>
+              )}
 
-              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-                {transcription.full_text}
-              </p>
+              <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
+                <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+                  {transcription.full_text}
+                </p>
+              </div>
             </div>
           ) : (
             <EmptySection
@@ -448,8 +462,8 @@ function SectionCard({
   children,
 }: {
   title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 md:p-6">
