@@ -26,26 +26,25 @@ type Meeting = {
 
 type Transcription = {
   id: string;
-  content: string | null;
+  full_text: string | null;
   created_at: string | null;
 };
 
 type Summary = {
   id: string;
-  summary: string | null;
+  summary_text: string | null;
+  key_points: unknown;
   created_at: string | null;
 };
 
 type Task = {
   id: string;
-  title: string | null;
   description: string | null;
   status: string | null;
 };
 
 type Decision = {
   id: string;
-  title: string | null;
   description: string | null;
 };
 
@@ -58,7 +57,6 @@ function MeetingDetailPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -86,7 +84,9 @@ function MeetingDetailPage() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (meetingError) throw meetingError;
+        if (meetingError) {
+          throw meetingError;
+        }
 
         if (!meetingData) {
           throw new Error("No se encontró esta reunión.");
@@ -100,7 +100,7 @@ function MeetingDetailPage() {
         ] = await Promise.all([
           supabase
             .from("transcriptions")
-            .select("id,content,created_at")
+            .select("id,full_text,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -108,7 +108,7 @@ function MeetingDetailPage() {
 
           supabase
             .from("ai_summaries")
-            .select("id,summary,created_at")
+            .select("id,summary_text,key_points,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -116,19 +116,22 @@ function MeetingDetailPage() {
 
           supabase
             .from("tasks")
-            .select("id,title,description,status")
+            .select("id,description,status")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
 
           supabase
             .from("decisions")
-            .select("id,title,description")
+            .select("id,description")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
         ]);
 
         if (transcriptionResult.error) {
-          console.warn("Transcription:", transcriptionResult.error.message);
+          console.warn(
+            "Transcription:",
+            transcriptionResult.error.message,
+          );
         }
 
         if (summaryResult.error) {
@@ -254,6 +257,7 @@ function MeetingDetailPage() {
 
           <div>
             <p className="text-sm font-medium">Procesando audio</p>
+
             <p className="text-xs text-muted-foreground">
               Lumen está preparando la transcripción y el análisis de tu
               reunión.
@@ -270,6 +274,7 @@ function MeetingDetailPage() {
             <p className="text-sm font-medium">
               El procesamiento tuvo un error
             </p>
+
             <p className="text-xs text-muted-foreground">
               Puedes revisar el audio y volver a intentarlo.
             </p>
@@ -282,10 +287,34 @@ function MeetingDetailPage() {
           title="Resumen ejecutivo"
           icon={<FileText className="h-4 w-4" />}
         >
-          {summary?.summary ? (
-            <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-              {summary.summary}
-            </p>
+          {summary?.summary_text ? (
+            <div className="space-y-4">
+              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+                {summary.summary_text}
+              </p>
+
+              {Array.isArray(summary.key_points) &&
+                summary.key_points.length > 0 && (
+                  <div>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Puntos clave
+                    </h3>
+
+                    <ul className="space-y-2">
+                      {summary.key_points.map((point, index) => (
+                        <li
+                          key={index}
+                          className="rounded-lg border border-border bg-background p-3 text-xs leading-5"
+                        >
+                          {typeof point === "string"
+                            ? point
+                            : JSON.stringify(point)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+            </div>
           ) : (
             <EmptySection
               text={
@@ -310,7 +339,7 @@ function MeetingDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="text-sm font-medium">
-                      {task.title || "Tarea"}
+                      {task.description || "Tarea"}
                     </h3>
 
                     {task.status && (
@@ -319,12 +348,6 @@ function MeetingDetailPage() {
                       </span>
                     )}
                   </div>
-
-                  {task.description && (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                      {task.description}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>
@@ -351,14 +374,8 @@ function MeetingDetailPage() {
                   className="rounded-xl border border-border bg-background p-4"
                 >
                   <h3 className="text-sm font-medium">
-                    {decision.title || "Decisión"}
+                    {decision.description || "Decisión"}
                   </h3>
-
-                  {decision.description && (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                      {decision.description}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>
@@ -371,10 +388,10 @@ function MeetingDetailPage() {
           title="Transcripción"
           icon={<FileAudio className="h-4 w-4" />}
         >
-          {transcription?.content ? (
+          {transcription?.full_text ? (
             <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
               <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-                {transcription.content}
+                {transcription.full_text}
               </p>
             </div>
           ) : (
@@ -392,7 +409,7 @@ function MeetingDetailPage() {
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
-          disabled={!transcription?.content && !summary?.summary}
+          disabled={!transcription?.full_text && !summary?.summary_text}
           onClick={() => window.print()}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
         >
