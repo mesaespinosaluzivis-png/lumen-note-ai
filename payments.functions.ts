@@ -1,3 +1,4 @@
+
 import { createServerFn } from "@tanstack/react-start";
 
 const PAYLINKS = {
@@ -16,9 +17,12 @@ const PAYLINKS = {
 } as const;
 
 type PlanType = keyof typeof PAYLINKS;
+
 type BillingPeriod = "monthly" | "annual";
 
-export const getPaymentLink = createServerFn({ method: "GET" })
+export const getPaymentLink = createServerFn({
+  method: "GET",
+})
   .validator(
     (data: {
       plan: PlanType;
@@ -44,4 +48,3 @@ export const getAllPaymentLinks = createServerFn({
 }).handler(() => {
   return PAYLINKS;
 });
-
