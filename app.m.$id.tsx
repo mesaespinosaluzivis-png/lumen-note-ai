@@ -1,16 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  AlertCircle,
   ArrowLeft,
   CheckCircle2,
   Clock3,
-  Download,
   FileAudio,
-  FileText,
   ListTodo,
   Loader2,
+  AlertCircle,
+  FileText,
+  Download,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/app/m/$id")({
@@ -27,28 +27,26 @@ type Meeting = {
 type Transcription = {
   id: string;
   full_text: string | null;
-  language: string | null;
   created_at: string | null;
 };
 
 type Summary = {
   id: string;
   summary_text: string | null;
-  key_points: string[] | null;
   created_at: string | null;
 };
 
 type Task = {
   id: string;
-  title: string | null;
   description: string | null;
   status: string | null;
+  due_date: string | null;
 };
 
 type Decision = {
   id: string;
-  title: string | null;
   description: string | null;
+  created_at: string | null;
 };
 
 function MeetingDetailPage() {
@@ -87,9 +85,7 @@ function MeetingDetailPage() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (meetingError) {
-          throw meetingError;
-        }
+        if (meetingError) throw meetingError;
 
         if (!meetingData) {
           throw new Error("No se encontró esta reunión.");
@@ -103,7 +99,7 @@ function MeetingDetailPage() {
         ] = await Promise.all([
           supabase
             .from("transcriptions")
-            .select("id,full_text,language,created_at")
+            .select("id,full_text,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -111,7 +107,7 @@ function MeetingDetailPage() {
 
           supabase
             .from("ai_summaries")
-            .select("id,summary_text,key_points,created_at")
+            .select("id,summary_text,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -119,56 +115,45 @@ function MeetingDetailPage() {
 
           supabase
             .from("tasks")
-            .select("id,title,description,status")
+            .select("id,description,status,due_date")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
 
           supabase
             .from("decisions")
-            .select("id,title,description")
+            .select("id,description,created_at")
             .eq("meeting_id", id)
             .order("created_at", { ascending: true }),
         ]);
 
         if (transcriptionResult.error) {
-          console.error(
-            "Error cargando transcripción:",
-            transcriptionResult.error,
+          console.warn(
+            "Transcription:",
+            transcriptionResult.error.message,
           );
         }
 
         if (summaryResult.error) {
-          console.error(
-            "Error cargando resumen:",
-            summaryResult.error,
-          );
+          console.warn("Summary:", summaryResult.error.message);
         }
 
         if (tasksResult.error) {
-          console.error(
-            "Error cargando tareas:",
-            tasksResult.error,
-          );
+          console.warn("Tasks:", tasksResult.error.message);
         }
 
         if (decisionsResult.error) {
-          console.error(
-            "Error cargando decisiones:",
-            decisionsResult.error,
-          );
+          console.warn("Decisions:", decisionsResult.error.message);
         }
 
-        if (!active) {
-          return;
+        if (active) {
+          setMeeting(meetingData);
+          setTranscription(transcriptionResult.data ?? null);
+          setSummary(summaryResult.data ?? null);
+          setTasks(tasksResult.data ?? []);
+          setDecisions(decisionsResult.data ?? []);
         }
-
-        setMeeting(meetingData);
-        setTranscription(transcriptionResult.data ?? null);
-        setSummary(summaryResult.data ?? null);
-        setTasks(tasksResult.data ?? []);
-        setDecisions(decisionsResult.data ?? []);
       } catch (err) {
-        console.error("Meeting detail error:", err);
+        console.error(err);
 
         if (active) {
           setError(
@@ -302,32 +287,9 @@ function MeetingDetailPage() {
           icon={<FileText className="h-4 w-4" />}
         >
           {summary?.summary_text ? (
-            <div className="space-y-4">
-              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-                {summary.summary_text}
-              </p>
-
-              {summary.key_points &&
-                Array.isArray(summary.key_points) &&
-                summary.key_points.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Puntos clave
-                    </h3>
-
-                    <ul className="space-y-2">
-                      {summary.key_points.map((point, index) => (
-                        <li
-                          key={`${index}-${point}`}
-                          className="rounded-lg bg-secondary/50 px-3 py-2 text-sm"
-                        >
-                          {point}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-            </div>
+            <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+              {summary.summary_text}
+            </p>
           ) : (
             <EmptySection
               text={
@@ -352,7 +314,7 @@ function MeetingDetailPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <h3 className="text-sm font-medium">
-                      {task.title || "Tarea"}
+                      {task.description || "Tarea"}
                     </h3>
 
                     {task.status && (
@@ -362,9 +324,10 @@ function MeetingDetailPage() {
                     )}
                   </div>
 
-                  {task.description && (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                      {task.description}
+                  {task.due_date && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Fecha límite:{" "}
+                      {new Date(task.due_date).toLocaleDateString("es")}
                     </p>
                   )}
                 </div>
@@ -393,14 +356,8 @@ function MeetingDetailPage() {
                   className="rounded-xl border border-border bg-background p-4"
                 >
                   <h3 className="text-sm font-medium">
-                    {decision.title || "Decisión"}
+                    {decision.description || "Decisión"}
                   </h3>
-
-                  {decision.description && (
-                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                      {decision.description}
-                    </p>
-                  )}
                 </div>
               ))}
             </div>
@@ -414,18 +371,10 @@ function MeetingDetailPage() {
           icon={<FileAudio className="h-4 w-4" />}
         >
           {transcription?.full_text ? (
-            <div className="space-y-3">
-              {transcription.language && (
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  Idioma: {transcription.language}
-                </p>
-              )}
-
-              <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
-                <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
-                  {transcription.full_text}
-                </p>
-              </div>
+            <div className="max-h-[500px] overflow-y-auto rounded-xl bg-secondary/30 p-4">
+              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground/90">
+                {transcription.full_text}
+              </p>
             </div>
           ) : (
             <EmptySection
@@ -462,8 +411,8 @@ function SectionCard({
   children,
 }: {
   title: string;
-  icon: ReactNode;
-  children: ReactNode;
+  icon: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 md:p-6">
