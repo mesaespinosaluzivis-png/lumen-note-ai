@@ -76,14 +76,12 @@ function NewMeetingPage() {
         );
       }
 
-      const safeName =
-        file.name
-          .normalize("NFKD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^a-zA-Z0-9.-]/g, "_") || "audio";
+      // Conservamos el nombre original del archivo.
+      // Ejemplo: Voz_12[1].m4a permanece como Voz_12[1].m4a.
+      const originalName = file.name || "audio";
 
       meetingId = crypto.randomUUID();
-      filePath = `${user.id}/${meetingId}-${safeName}`;
+      filePath = `${user.id}/${meetingId}-${originalName}`;
 
       const { error: uploadError } = await supabase.storage
         .from("audio-files")
@@ -292,6 +290,7 @@ function NewMeetingPage() {
         <div
           onDragOver={(event) => {
             event.preventDefault();
+
             if (!uploading) {
               setDragging(true);
             }
