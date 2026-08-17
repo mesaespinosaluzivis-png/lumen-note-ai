@@ -76,22 +76,17 @@ function NewMeetingPage() {
         );
       }
 
-      // El nombre original solo se conserva para mostrarlo en la interfaz.
-      // Storage utilizará una ruta interna basada en UUID.
       const originalName = file.name || "audio";
 
       const extension = originalName.includes(".")
         ? originalName
-            .substring(originalName.lastIndexOf("."))
+            .slice(originalName.lastIndexOf("."))
             .toLowerCase()
             .replace(/[^a-z0-9.]/g, "")
         : "";
 
       meetingId = crypto.randomUUID();
 
-      // Ruta interna segura para Supabase Storage.
-      // Ejemplo:
-      // user-id/meeting-uuid.m4a
       filePath = `${user.id}/${meetingId}${extension}`;
 
       const { data: uploadData, error: uploadError } =
@@ -102,7 +97,12 @@ function NewMeetingPage() {
             upsert: false,
           });
 
-      // DIAGNÓSTICO TEMPORAL DE STORAGE
+      const storageStatusCode = (
+        uploadError as {
+          statusCode?: string | number;
+        } | null
+      )?.statusCode;
+
       console.log("=== LUMEN STORAGE UPLOAD ===");
       console.log("filePath:", filePath);
       console.log("fileName:", file.name);
@@ -110,24 +110,15 @@ function NewMeetingPage() {
       console.log("fileSize:", file.size);
       console.log("uploadData:", uploadData);
       console.log("uploadError:", uploadError);
-      console.log(
-        "uploadError.message:",
-        uploadError?.message,
-      );
-      console.log(
-        "uploadError.statusCode:",
-        uploadError?.statusCode,
-      );
-      console.log(
-        "uploadError.error:",
-        uploadError?.error,
-      );
+      console.log("uploadError.message:", uploadError?.message);
+      console.log("uploadError.statusCode:", storageStatusCode);
+      console.log("uploadError.error:", uploadError?.error);
       console.log("=== END STORAGE UPLOAD ===");
 
       if (uploadError) {
         const storageDetails = [
           `Mensaje: ${uploadError.message || "sin mensaje"}`,
-          `Código: ${uploadError.statusCode || "sin código"}`,
+          `Código: ${storageStatusCode || "sin código"}`,
           `Error: ${uploadError.error || "sin detalle"}`,
           `Ruta: ${filePath}`,
         ].join(" | ");
@@ -170,9 +161,7 @@ function NewMeetingPage() {
       if (sessionError || !session?.access_token) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -180,18 +169,14 @@ function NewMeetingPage() {
         );
       }
 
-      const supabaseUrl =
-        import.meta.env.VITE_SUPABASE_URL;
-
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey =
         import.meta.env.VITE_SUPABASE_ANON_KEY;
 
       if (!supabaseUrl || !supabaseAnonKey) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -220,9 +205,7 @@ function NewMeetingPage() {
       if (!response.ok) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -235,9 +218,7 @@ function NewMeetingPage() {
       if (!result || result.success !== true) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -249,9 +230,7 @@ function NewMeetingPage() {
       if (result.meeting_id !== meeting.id) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meeting.id);
 
         throw new Error(
@@ -271,9 +250,7 @@ function NewMeetingPage() {
       if (meetingId) {
         await supabase
           .from("meetings")
-          .update({
-            status: "failed",
-          })
+          .update({ status: "failed" })
           .eq("id", meetingId);
       }
 
@@ -422,9 +399,7 @@ function NewMeetingPage() {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2">
               <Mic className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">
-                Grabación
-              </span>
+              <span className="text-sm font-medium">Grabación</span>
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
