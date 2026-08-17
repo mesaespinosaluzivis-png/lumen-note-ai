@@ -76,12 +76,23 @@ function NewMeetingPage() {
         );
       }
 
-      // Conservamos el nombre original del archivo.
-      // Ejemplo: Voz_12[1].m4a permanece como Voz_12[1].m4a.
+      // Conservamos el nombre original solamente para referencia.
+      // Storage utilizará un nombre interno seguro.
       const originalName = file.name || "audio";
 
+      const extension = originalName.includes(".")
+        ? originalName
+            .substring(originalName.lastIndexOf("."))
+            .toLowerCase()
+            .replace(/[^a-z0-9.]/g, "")
+        : "";
+
       meetingId = crypto.randomUUID();
-      filePath = `${user.id}/${meetingId}-${originalName}`;
+
+      // Nombre interno seguro para Supabase Storage.
+      // Ejemplo:
+      // user-id/meeting-uuid.m4a
+      filePath = `${user.id}/${meetingId}${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("audio-files")
