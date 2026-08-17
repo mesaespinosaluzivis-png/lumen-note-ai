@@ -76,8 +76,8 @@ function NewMeetingPage() {
         );
       }
 
-      // Conservamos el nombre original solamente para referencia.
-      // Storage utilizará un nombre interno seguro.
+      // El nombre original solo se conserva para mostrarlo en la interfaz.
+      // Storage utilizará una ruta interna basada en UUID.
       const originalName = file.name || "audio";
 
       const extension = originalName.includes(".")
@@ -89,34 +89,65 @@ function NewMeetingPage() {
 
       meetingId = crypto.randomUUID();
 
-      // Nombre interno seguro para Supabase Storage.
+      // Ruta interna segura para Supabase Storage.
       // Ejemplo:
       // user-id/meeting-uuid.m4a
       filePath = `${user.id}/${meetingId}${extension}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from("audio-files")
-        .upload(filePath, file, {
-          contentType: file.type || "application/octet-stream",
-          upsert: false,
-        });
+      const { data: uploadData, error: uploadError } =
+        await supabase.storage
+          .from("audio-files")
+          .upload(filePath, file, {
+            contentType: file.type || "application/octet-stream",
+            upsert: false,
+          });
+
+      // DIAGNÓSTICO TEMPORAL DE STORAGE
+      console.log("=== LUMEN STORAGE UPLOAD ===");
+      console.log("filePath:", filePath);
+      console.log("fileName:", file.name);
+      console.log("fileType:", file.type);
+      console.log("fileSize:", file.size);
+      console.log("uploadData:", uploadData);
+      console.log("uploadError:", uploadError);
+      console.log(
+        "uploadError.message:",
+        uploadError?.message,
+      );
+      console.log(
+        "uploadError.statusCode:",
+        uploadError?.statusCode,
+      );
+      console.log(
+        "uploadError.error:",
+        uploadError?.error,
+      );
+      console.log("=== END STORAGE UPLOAD ===");
 
       if (uploadError) {
+        const storageDetails = [
+          `Mensaje: ${uploadError.message || "sin mensaje"}`,
+          `Código: ${uploadError.statusCode || "sin código"}`,
+          `Error: ${uploadError.error || "sin detalle"}`,
+          `Ruta: ${filePath}`,
+        ].join(" | ");
+
         throw new Error(
-          `No se pudo subir el audio: ${uploadError.message}`,
+          `No se pudo subir el audio. ${storageDetails}`,
         );
       }
 
-      const { data: meeting, error: meetingError } = await supabase
-        .from("meetings")
-        .insert({
-          id: meetingId,
-          user_id: user.id,
-          title: title.trim() || "Nueva reunión",
-          status: "processing",
-        })
-        .select("id")
-        .single();
+      const { data: meeting, error: meetingError } =
+        await supabase
+          .from("meetings")
+          .insert({
+            id: meetingId,
+            user_id: user.id,
+            title: title.trim() || "Nueva reunión",
+            status: "processing",
+          })
+          .select("id")
+          .single();
 
       if (meetingError || !meeting) {
         await supabase.storage
@@ -149,7 +180,9 @@ function NewMeetingPage() {
         );
       }
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseUrl =
+        import.meta.env.VITE_SUPABASE_URL;
+
       const supabaseAnonKey =
         import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -389,7 +422,9 @@ function NewMeetingPage() {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2">
               <Mic className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Grabación</span>
+              <span className="text-sm font-medium">
+                Grabación
+              </span>
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
@@ -449,3 +484,4 @@ function NewMeetingPage() {
     </main>
   );
 }
+
