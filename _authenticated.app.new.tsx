@@ -89,10 +89,18 @@ function NewMeetingPage() {
 
       filePath = `${user.id}/${meetingId}${extension}`;
 
+      const sanitizedFile = new File(
+        [file],
+        `${meetingId}${extension}`,
+        {
+          type: file.type || "application/octet-stream",
+        },
+      );
+
       const { data: uploadData, error: uploadError } =
         await supabase.storage
           .from("audio-files")
-          .upload(filePath, file, {
+          .upload(filePath, sanitizedFile, {
             contentType: file.type || "application/octet-stream",
             upsert: false,
           });
@@ -106,6 +114,7 @@ function NewMeetingPage() {
       console.log("=== LUMEN STORAGE UPLOAD ===");
       console.log("filePath:", filePath);
       console.log("fileName:", file.name);
+      console.log("sanitizedFileName:", sanitizedFile.name);
       console.log("fileType:", file.type);
       console.log("fileSize:", file.size);
       console.log("uploadData:", uploadData);
@@ -459,4 +468,3 @@ function NewMeetingPage() {
     </main>
   );
 }
-
