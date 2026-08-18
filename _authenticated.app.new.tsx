@@ -34,6 +34,10 @@ function NewMeetingPage() {
       return;
     }
 
+    /*
+     * Algunos móviles/navegadores pueden entregar file.type vacío.
+     * En ese caso utilizamos también la extensión.
+     */
     const isAudioMime =
       !!selectedFile.type && selectedFile.type.startsWith("audio/");
 
@@ -45,6 +49,8 @@ function NewMeetingPage() {
       ".m4a",
       ".aac",
       ".ogg",
+      ".oga",
+      ".opus",
       ".flac",
       ".webm",
       ".mp4",
@@ -57,11 +63,18 @@ function NewMeetingPage() {
     if (!isAudioMime && !hasKnownAudioExtension) {
       setFile(null);
       setError(
-        "Selecciona un archivo de audio válido. Formatos compatibles: MP3, WAV, M4A, AAC, OGG, FLAC o WEBM.",
+        "Selecciona un archivo de audio válido. Formatos compatibles: MP3, WAV, M4A, AAC, OGG, OGA, OPUS, FLAC, WEBM o MP4.",
       );
       return;
     }
 
+    /*
+     * No imponemos aquí un límite artificial pequeño.
+     *
+     * Lumen está diseñado para reuniones largas.
+     * El límite real de procesamiento se debe controlar
+     * posteriormente según el plan y la capacidad del backend.
+     */
     setFile(selectedFile);
   }
 
@@ -93,21 +106,14 @@ function NewMeetingPage() {
     try {
       /*
        * ============================================================
-       * 1. OBTENER UNA ÚNICA SESIÓN
+       * 1. OBTENER LA SESIÓN ACTUAL
        * ============================================================
        *
-       * El mismo user.id y el mismo access_token se utilizan durante
-       * todo el flujo:
+       * NO guardamos ningún JWT fijo.
        *
-       * session.user.id
-       *        ↓
-       * filePath
-       *
-       * session.access_token
-       *        ↓
-       * Authorization
-       *        ↓
-       * process-audio
+       * Supabase gestiona la sesión actual y su access_token.
+       * La llamada posterior a supabase.functions.invoke()
+       * utilizará el cliente Supabase real de la aplicación.
        */
 
       const {
@@ -115,13 +121,35 @@ function NewMeetingPage() {
         error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (sessionError || !session?.user || !session.access_token) {
+      if (sessionError) {
+        console.error("Session error:", sessionError);
+
         throw new Error(
-          "Tu sesión ha expirado. Inicia sesión nuevamente.",
+          "No se pudo comprobar tu sesión. Intenta iniciar sesión nuevamente.",
+        );
+      }
+
+      if (!session?.user?.id) {
+        throw new Error(
+          "No existe una sesión activa. Inicia sesión nuevamente.",
+        );
+      }
+
+      if (!session.access_token) {
+        throw new Error(
+          "No existe un token de sesión válido. Inicia sesión nuevamente.",
         );
       }
 
       const user = session.user;
+
+      console.log("=== LUMEN SESSION ===");
+      console.log("userId:", user.id);
+      console.log(
+        "sessionTokenPresent:",
+        !!session.access_token,
+      );
+      console.log("=== END LUMEN SESSION ===");
 
       /*
        * ============================================================
@@ -133,8 +161,17 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 3. DETERMINAR LA EXTENSIÓN
+       * 3. OBTENER EXTENSIÓN ORIGINAL
        * ============================================================
+       *
+       * Conservamos solamente la extensión.
+       * No utilizamos el nombre original completo como path.
+       *
+       * Esto evita problemas con:
+       * espacios
+       * corchetes
+       * caracteres especiales
+       * nombres duplicados
        */
 
       const originalName = file.name || "audio";
@@ -151,13 +188,13 @@ function NewMeetingPage() {
        * 4. CREAR UN ÚNICO FILE PATH
        * ============================================================
        *
-       * Este MISMO filePath se utiliza en:
+       * Este path será EXACTAMENTE el mismo en:
        *
        * Storage.upload()
-       *        ↓
-       * process-audio body
-       *        ↓
-       * process-audio Storage.download()
+       *
+       * y posteriormente:
+       *
+       * process-audio -> Storage.download()
        */
 
       filePath = `${user.id}/${meetingId}${extension}`;
@@ -169,23 +206,29 @@ function NewMeetingPage() {
       console.log("fileName:", file.name);
       console.log("fileType:", file.type);
       console.log("fileSize:", file.size);
-      console.log("sessionTokenPresent:", !!session.access_token);
+      console.log("extension:", extension);
       console.log("=== END LUMEN CREATE MEETING ===");
 
       /*
        * ============================================================
-       * 5. SUBIR EL FILE ORIGINAL A STORAGE
+       * 5. SUBIR AUDIO ORIGINAL A STORAGE
        * ============================================================
        *
+       * No convertimos a Base64.
        * No recreamos el File.
-       * Se sube directamente el archivo seleccionado por el usuario.
+       * No modificamos el contenido.
+       *
+       * El audio sube directamente a:
+       *
+       * audio-files/{userId}/{meetingId}.ext
        */
 
       const { data: uploadData, error: uploadError } =
         await supabase.storage
           .from("audio-files")
           .upload(filePath, file, {
-            contentType: file.type || "application/octet-stream",
+            contentType:
+              file.type || "application/octet-stream",
             upsert: false,
           });
 
@@ -203,7 +246,10 @@ function NewMeetingPage() {
       console.log("uploadData:", uploadData);
       console.log("uploadError:", uploadError);
       console.log("uploadError.message:", uploadError?.message);
-      console.log("uploadError.statusCode:", storageStatusCode);
+      console.log(
+        "uploadError.statusCode:",
+        storageStatusCode,
+      );
       console.log("uploadError.error:", uploadError?.error);
       console.log("=== END STORAGE UPLOAD ===");
 
@@ -222,30 +268,44 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 6. CREAR MEETING CON EL MISMO MEETING ID
+       * 6. CREAR MEETING
        * ============================================================
        */
 
-      const { data: meeting, error: meetingError } = await supabase
-        .from("meetings")
-        .insert({
-          id: meetingId,
-          user_id: user.id,
-          title: title.trim() || "Nueva reunión",
-          status: "processing",
-        })
-        .select("id")
-        .single();
+      const { data: meeting, error: meetingError } =
+        await supabase
+          .from("meetings")
+          .insert({
+            id: meetingId,
+            user_id: user.id,
+            title: title.trim() || "Nueva reunión",
+            status: "processing",
+          })
+          .select("id")
+          .single();
+
+      console.log("=== LUMEN MEETING INSERT ===");
+      console.log("meeting:", meeting);
+      console.log("meetingError:", meetingError);
+      console.log("meetingId:", meetingId);
+      console.log("=== END LUMEN MEETING INSERT ===");
 
       if (meetingError || !meeting) {
         /*
-         * Si la creación de meetings falla, limpiamos el archivo
-         * que acabamos de subir.
+         * Si Storage funcionó pero meetings falló,
+         * eliminamos el archivo huérfano.
          */
 
-        await supabase.storage
-          .from("audio-files")
-          .remove([filePath]);
+        try {
+          await supabase.storage
+            .from("audio-files")
+            .remove([filePath]);
+        } catch (cleanupError) {
+          console.warn(
+            "No se pudo limpiar el audio después del fallo de meetings:",
+            cleanupError,
+          );
+        }
 
         throw new Error(
           meetingError?.message ||
@@ -254,20 +314,35 @@ function NewMeetingPage() {
       }
 
       /*
-       * Comprobación adicional:
-       * el ID generado, el ID almacenado y el ID que enviaremos
-       * a process-audio deben ser exactamente el mismo.
+       * ============================================================
+       * 7. VERIFICAR IDENTIFICADORES
+       * ============================================================
+       *
+       * El mismo ID debe existir en:
+       *
+       * meetingId
+       * meetings.id
+       * process-audio.meeting_id
        */
 
       if (meeting.id !== meetingId) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meetingId);
 
-        await supabase.storage
-          .from("audio-files")
-          .remove([filePath]);
+        try {
+          await supabase.storage
+            .from("audio-files")
+            .remove([filePath]);
+        } catch (cleanupError) {
+          console.warn(
+            "Error durante cleanup:",
+            cleanupError,
+          );
+        }
 
         throw new Error(
           "El identificador de la reunión no coincide con el creado inicialmente.",
@@ -278,166 +353,270 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 7. VALIDAR CONFIGURACIÓN DEL FRONTEND
+       * 8. VERIFICAR QUE EL AUDIO EXISTE EN STORAGE
        * ============================================================
+       *
+       * Esto nos permite detectar una ruptura antes de llamar
+       * a process-audio.
+       *
+       * No descargamos el audio.
+       * Solo comprobamos su existencia/metadatos.
        */
 
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey =
-        import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const { data: storageObject, error: storageListError } =
+        await supabase.storage
+          .from("audio-files")
+          .list(user.id, {
+            search: `${meetingId}${extension}`,
+            limit: 10,
+          });
 
-      if (!supabaseUrl || !supabaseAnonKey) {
+      console.log("=== LUMEN STORAGE VERIFY ===");
+      console.log("userId:", user.id);
+      console.log("expectedFile:", `${meetingId}${extension}`);
+      console.log("storageObject:", storageObject);
+      console.log(
+        "storageListError:",
+        storageListError,
+      );
+      console.log("=== END STORAGE VERIFY ===");
+
+      if (storageListError) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meetingId);
 
         throw new Error(
-          "Faltan las variables de configuración de Supabase.",
+          `El audio se subió, pero no se pudo verificar en Storage: ${storageListError.message}`,
         );
       }
 
-      /*
-       * ============================================================
-       * 8. CONSTRUIR LA URL EXACTA DE PROCESS-AUDIO
-       * ============================================================
-       */
+      const storageFileExists =
+        storageObject?.some(
+          (item) =>
+            item.name === `${meetingId}${extension}`,
+        ) ?? false;
 
-      const functionUrl =
-        `${supabaseUrl}/functions/v1/process-audio`;
+      if (!storageFileExists) {
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meetingId);
+
+        throw new Error(
+          "El audio aparentemente se subió, pero no se encontró en Storage con la ruta esperada.",
+        );
+      }
 
       /*
        * ============================================================
        * 9. LLAMAR A PROCESS-AUDIO
        * ============================================================
        *
-       * Authorization:
-       *     Bearer del MISMO session.access_token
+       * IMPORTANTE:
        *
-       * apikey:
-       *     anon key del MISMO proyecto
+       * Ya NO hacemos fetch manual.
        *
-       * body:
-       *     meeting_id = mismo meeting.id
-       *     filePath   = mismo filePath utilizado en Storage
+       * Ya NO construimos manualmente:
+       *
+       * Authorization
+       * apikey
+       * VITE_SUPABASE_ANON_KEY
+       * functionUrl
+       *
+       * Utilizamos el MISMO cliente Supabase que usa toda
+       * la aplicación:
+       *
+       * supabase.functions.invoke("process-audio")
+       *
+       * El cliente Supabase gestiona la comunicación con la
+       * Edge Function utilizando la sesión actual.
        */
 
-      console.log("=== LUMEN PROCESS-AUDIO REQUEST ===");
-      console.log("functionUrl:", functionUrl);
-      console.log("meetingId:", meeting.id);
+      console.log("=== LUMEN PROCESS-AUDIO INVOKE ===");
+      console.log("function:", "process-audio");
+      console.log("meeting_id:", meeting.id);
       console.log("filePath:", filePath);
       console.log(
-        "authorizationTokenPresent:",
+        "sessionTokenPresent:",
         !!session.access_token,
       );
-      console.log("apikeyPresent:", !!supabaseAnonKey);
-      console.log("=== END PROCESS-AUDIO REQUEST ===");
+      console.log("=== END PROCESS-AUDIO INVOKE ===");
 
-      const response = await fetch(functionUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: supabaseAnonKey,
-          "Content-Type": "application/json",
+      const {
+        data: processData,
+        error: processError,
+      } = await supabase.functions.invoke(
+        "process-audio",
+        {
+          body: {
+            meeting_id: meeting.id,
+            filePath,
+          },
         },
-        body: JSON.stringify({
-          meeting_id: meeting.id,
-          filePath,
-        }),
-      });
-
-      /*
-       * ============================================================
-       * 10. LEER RESPUESTA DE PROCESS-AUDIO
-       * ============================================================
-       */
-
-      const responseText = await response.text();
-
-      let result: any = null;
-
-      if (responseText) {
-        try {
-          result = JSON.parse(responseText);
-        } catch {
-          result = null;
-        }
-      }
+      );
 
       console.log("=== LUMEN PROCESS-AUDIO RESPONSE ===");
-      console.log("httpStatus:", response.status);
-      console.log("httpOk:", response.ok);
-      console.log("responseText:", responseText);
-      console.log("parsedResult:", result);
+      console.log("processData:", processData);
+      console.log("processError:", processError);
+      console.log("meetingId:", meeting.id);
+      console.log("filePath:", filePath);
       console.log("=== END PROCESS-AUDIO RESPONSE ===");
 
       /*
        * ============================================================
-       * 11. VALIDAR HTTP
+       * 10. MANEJAR ERROR DE LA EDGE FUNCTION
        * ============================================================
        */
 
-      if (!response.ok) {
+      if (processError) {
+        console.error(
+          "process-audio invoke error:",
+          processError,
+        );
+
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
+        /*
+         * Intentamos extraer el mensaje real cuando Supabase
+         * devuelve información adicional.
+         */
+
+        let detailedError =
+          processError.message ||
+          "No se pudo ejecutar process-audio.";
+
+        try {
+          const context = (
+            processError as {
+              context?: Response;
+            }
+          ).context;
+
+          if (context) {
+            const responseText = await context.text();
+
+            console.error(
+              "process-audio raw response:",
+              responseText,
+            );
+
+            if (responseText) {
+              try {
+                const parsedError =
+                  JSON.parse(responseText);
+
+                detailedError =
+                  parsedError?.error ||
+                  parsedError?.message ||
+                  responseText;
+              } catch {
+                detailedError = responseText;
+              }
+            }
+          }
+        } catch (responseReadError) {
+          console.warn(
+            "No se pudo leer el contexto de error de process-audio:",
+            responseReadError,
+          );
+        }
+
         throw new Error(
-          result?.error ||
-            result?.message ||
-            responseText ||
-            `No se pudo procesar el audio. Código HTTP: ${response.status}`,
+          `Error de process-audio: ${detailedError}`,
         );
       }
 
       /*
        * ============================================================
-       * 12. VALIDAR SUCCESS
+       * 11. VALIDAR RESPUESTA
        * ============================================================
        */
 
-      if (!result || result.success !== true) {
+      if (
+        !processData ||
+        typeof processData !== "object"
+      ) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
         throw new Error(
-          result?.error ||
-            result?.message ||
+          "process-audio respondió sin datos válidos.",
+        );
+      }
+
+      const processResult =
+        processData as {
+          success?: boolean;
+          error?: string;
+          message?: string;
+          meeting_id?: string;
+        };
+
+      if (processResult.success !== true) {
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meeting.id);
+
+        throw new Error(
+          processResult.error ||
+            processResult.message ||
             "El procesamiento del audio no confirmó éxito.",
         );
       }
 
       /*
        * ============================================================
-       * 13. VALIDAR QUE PROCESS-AUDIO RESPONDIÓ PARA ESTE MEETING
+       * 12. VALIDAR MEETING ID DE LA RESPUESTA
        * ============================================================
        */
 
-      if (result.meeting_id !== meeting.id) {
+      if (
+        processResult.meeting_id &&
+        processResult.meeting_id !== meeting.id
+      ) {
         await supabase
           .from("meetings")
-          .update({ status: "failed" })
+          .update({
+            status: "failed",
+          })
           .eq("id", meeting.id);
 
         throw new Error(
-          "La respuesta del procesamiento no corresponde a esta reunión.",
+          "process-audio respondió con un meeting_id diferente al de esta reunión.",
         );
       }
 
       /*
        * ============================================================
-       * 14. PROCESAMIENTO COMPLETADO
+       * 13. ÉXITO
        * ============================================================
        */
 
       console.log("=== LUMEN PROCESSING SUCCESS ===");
       console.log("meetingId:", meeting.id);
       console.log("filePath:", filePath);
-      console.log("result:", result);
+      console.log("processData:", processData);
       console.log("=== END LUMEN PROCESSING SUCCESS ===");
+
+      setMessage("Reunión procesada correctamente.");
 
       await navigate({
         to: "/app/m/$id",
@@ -446,18 +625,30 @@ function NewMeetingPage() {
         },
       });
     } catch (err) {
-      console.error("Create meeting error:", err);
+      console.error("=== LUMEN CREATE MEETING ERROR ===");
+      console.error(err);
+      console.error("meetingId:", meetingId);
+      console.error("filePath:", filePath);
+      console.error("=== END LUMEN CREATE MEETING ERROR ===");
 
       /*
-       * Si ya existe un meetingId, intentamos dejar la reunión
-       * correctamente marcada como failed.
+       * Si ya existe meetingId, dejamos la reunión en failed.
        */
 
       if (meetingId) {
-        await supabase
-          .from("meetings")
-          .update({ status: "failed" })
-          .eq("id", meetingId);
+        try {
+          await supabase
+            .from("meetings")
+            .update({
+              status: "failed",
+            })
+            .eq("id", meetingId);
+        } catch (statusError) {
+          console.error(
+            "No se pudo actualizar meeting a failed:",
+            statusError,
+          );
+        }
       }
 
       setError(
@@ -465,6 +656,8 @@ function NewMeetingPage() {
           ? err.message
           : "Ocurrió un error al crear la reunión.",
       );
+
+      setMessage("");
     } finally {
       setUploading(false);
     }
@@ -507,7 +700,9 @@ function NewMeetingPage() {
           <input
             id="meeting-title"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) =>
+              setTitle(event.target.value)
+            }
             placeholder="Ej. Reunión con cliente"
             disabled={uploading}
             className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
@@ -578,7 +773,9 @@ function NewMeetingPage() {
 
               <button
                 type="button"
-                onClick={() => inputRef.current?.click()}
+                onClick={() =>
+                  inputRef.current?.click()
+                }
                 disabled={uploading}
                 className="mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -591,11 +788,14 @@ function NewMeetingPage() {
           <input
             ref={inputRef}
             type="file"
-            accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.mp4"
+            accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.webm,.mp4"
             className="hidden"
             disabled={uploading}
             onChange={(event) => {
-              selectFile(event.target.files?.[0] ?? null);
+              selectFile(
+                event.target.files?.[0] ?? null,
+              );
+
               event.target.value = "";
             }}
           />
@@ -605,12 +805,14 @@ function NewMeetingPage() {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2">
               <Mic className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Grabación</span>
+              <span className="text-sm font-medium">
+                Grabación
+              </span>
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
-              Puedes utilizar una grabación de audio realizada
-              previamente.
+              Puedes utilizar una grabación de audio
+              realizada previamente.
             </p>
           </div>
 
@@ -623,8 +825,8 @@ function NewMeetingPage() {
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
-              Selecciona un archivo de audio compatible con tu
-              dispositivo.
+              Selecciona un archivo de audio compatible
+              con tu dispositivo.
             </p>
           </div>
         </div>
