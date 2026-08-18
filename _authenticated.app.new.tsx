@@ -34,9 +34,31 @@ function NewMeetingPage() {
       return;
     }
 
-    if (!selectedFile.type.startsWith("audio/")) {
+    const isAudioMime =
+      !!selectedFile.type && selectedFile.type.startsWith("audio/");
+
+    const lowerName = (selectedFile.name || "").toLowerCase();
+
+    const knownAudioExtensions = [
+      ".mp3",
+      ".wav",
+      ".m4a",
+      ".aac",
+      ".ogg",
+      ".flac",
+      ".webm",
+      ".mp4",
+    ];
+
+    const hasKnownAudioExtension = knownAudioExtensions.some((extension) =>
+      lowerName.endsWith(extension),
+    );
+
+    if (!isAudioMime && !hasKnownAudioExtension) {
       setFile(null);
-      setError("Selecciona un archivo de audio válido.");
+      setError(
+        "Selecciona un archivo de audio válido. Formatos compatibles: MP3, WAV, M4A, AAC, OGG, FLAC o WEBM.",
+      );
       return;
     }
 
@@ -46,6 +68,10 @@ function NewMeetingPage() {
   function handleDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragging(false);
+
+    if (uploading) {
+      return;
+    }
 
     selectFile(event.dataTransfer.files?.[0] ?? null);
   }
@@ -65,16 +91,51 @@ function NewMeetingPage() {
     let filePath: string | null = null;
 
     try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
+      /*
+       * ============================================================
+       * 1. OBTENER UNA ÚNICA SESIÓN
+       * ============================================================
+       *
+       * El mismo user.id y el mismo access_token se utilizan durante
+       * todo el flujo:
+       *
+       * session.user.id
+       *        ↓
+       * filePath
+       *
+       * session.access_token
+       *        ↓
+       * Authorization
+       *        ↓
+       * process-audio
+       */
 
-      if (authError || !user) {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user || !session.access_token) {
         throw new Error(
           "Tu sesión ha expirado. Inicia sesión nuevamente.",
         );
       }
+
+      const user = session.user;
+
+      /*
+       * ============================================================
+       * 2. CREAR UN ÚNICO MEETING ID
+       * ============================================================
+       */
+
+      meetingId = crypto.randomUUID();
+
+      /*
+       * ============================================================
+       * 3. DETERMINAR LA EXTENSIÓN
+       * ============================================================
+       */
 
       const originalName = file.name || "audio";
 
@@ -85,22 +146,45 @@ function NewMeetingPage() {
             .replace(/[^a-z0-9.]/g, "")
         : "";
 
-      meetingId = crypto.randomUUID();
+      /*
+       * ============================================================
+       * 4. CREAR UN ÚNICO FILE PATH
+       * ============================================================
+       *
+       * Este MISMO filePath se utiliza en:
+       *
+       * Storage.upload()
+       *        ↓
+       * process-audio body
+       *        ↓
+       * process-audio Storage.download()
+       */
 
       filePath = `${user.id}/${meetingId}${extension}`;
 
-      const sanitizedFile = new File(
-        [file],
-        `${meetingId}${extension}`,
-        {
-          type: file.type || "application/octet-stream",
-        },
-      );
+      console.log("=== LUMEN CREATE MEETING ===");
+      console.log("userId:", user.id);
+      console.log("meetingId:", meetingId);
+      console.log("filePath:", filePath);
+      console.log("fileName:", file.name);
+      console.log("fileType:", file.type);
+      console.log("fileSize:", file.size);
+      console.log("sessionTokenPresent:", !!session.access_token);
+      console.log("=== END LUMEN CREATE MEETING ===");
+
+      /*
+       * ============================================================
+       * 5. SUBIR EL FILE ORIGINAL A STORAGE
+       * ============================================================
+       *
+       * No recreamos el File.
+       * Se sube directamente el archivo seleccionado por el usuario.
+       */
 
       const { data: uploadData, error: uploadError } =
         await supabase.storage
           .from("audio-files")
-          .upload(filePath, sanitizedFile, {
+          .upload(filePath, file, {
             contentType: file.type || "application/octet-stream",
             upsert: false,
           });
@@ -114,7 +198,6 @@ function NewMeetingPage() {
       console.log("=== LUMEN STORAGE UPLOAD ===");
       console.log("filePath:", filePath);
       console.log("fileName:", file.name);
-      console.log("sanitizedFileName:", sanitizedFile.name);
       console.log("fileType:", file.type);
       console.log("fileSize:", file.size);
       console.log("uploadData:", uploadData);
@@ -137,19 +220,29 @@ function NewMeetingPage() {
         );
       }
 
-      const { data: meeting, error: meetingError } =
-        await supabase
-          .from("meetings")
-          .insert({
-            id: meetingId,
-            user_id: user.id,
-            title: title.trim() || "Nueva reunión",
-            status: "processing",
-          })
-          .select("id")
-          .single();
+      /*
+       * ============================================================
+       * 6. CREAR MEETING CON EL MISMO MEETING ID
+       * ============================================================
+       */
+
+      const { data: meeting, error: meetingError } = await supabase
+        .from("meetings")
+        .insert({
+          id: meetingId,
+          user_id: user.id,
+          title: title.trim() || "Nueva reunión",
+          status: "processing",
+        })
+        .select("id")
+        .single();
 
       if (meetingError || !meeting) {
+        /*
+         * Si la creación de meetings falla, limpiamos el archivo
+         * que acabamos de subir.
+         */
+
         await supabase.storage
           .from("audio-files")
           .remove([filePath]);
@@ -160,23 +253,34 @@ function NewMeetingPage() {
         );
       }
 
-      setMessage("Audio subido. Procesando reunión…");
+      /*
+       * Comprobación adicional:
+       * el ID generado, el ID almacenado y el ID que enviaremos
+       * a process-audio deben ser exactamente el mismo.
+       */
 
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.access_token) {
+      if (meeting.id !== meetingId) {
         await supabase
           .from("meetings")
           .update({ status: "failed" })
-          .eq("id", meeting.id);
+          .eq("id", meetingId);
+
+        await supabase.storage
+          .from("audio-files")
+          .remove([filePath]);
 
         throw new Error(
-          "No se encontró el token de autenticación.",
+          "El identificador de la reunión no coincide con el creado inicialmente.",
         );
       }
+
+      setMessage("Audio subido. Procesando reunión…");
+
+      /*
+       * ============================================================
+       * 7. VALIDAR CONFIGURACIÓN DEL FRONTEND
+       * ============================================================
+       */
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey =
@@ -186,15 +290,48 @@ function NewMeetingPage() {
         await supabase
           .from("meetings")
           .update({ status: "failed" })
-          .eq("id", meeting.id);
+          .eq("id", meetingId);
 
         throw new Error(
           "Faltan las variables de configuración de Supabase.",
         );
       }
 
+      /*
+       * ============================================================
+       * 8. CONSTRUIR LA URL EXACTA DE PROCESS-AUDIO
+       * ============================================================
+       */
+
       const functionUrl =
         `${supabaseUrl}/functions/v1/process-audio`;
+
+      /*
+       * ============================================================
+       * 9. LLAMAR A PROCESS-AUDIO
+       * ============================================================
+       *
+       * Authorization:
+       *     Bearer del MISMO session.access_token
+       *
+       * apikey:
+       *     anon key del MISMO proyecto
+       *
+       * body:
+       *     meeting_id = mismo meeting.id
+       *     filePath   = mismo filePath utilizado en Storage
+       */
+
+      console.log("=== LUMEN PROCESS-AUDIO REQUEST ===");
+      console.log("functionUrl:", functionUrl);
+      console.log("meetingId:", meeting.id);
+      console.log("filePath:", filePath);
+      console.log(
+        "authorizationTokenPresent:",
+        !!session.access_token,
+      );
+      console.log("apikeyPresent:", !!supabaseAnonKey);
+      console.log("=== END PROCESS-AUDIO REQUEST ===");
 
       const response = await fetch(functionUrl, {
         method: "POST",
@@ -209,7 +346,36 @@ function NewMeetingPage() {
         }),
       });
 
-      const result = await response.json().catch(() => null);
+      /*
+       * ============================================================
+       * 10. LEER RESPUESTA DE PROCESS-AUDIO
+       * ============================================================
+       */
+
+      const responseText = await response.text();
+
+      let result: any = null;
+
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText);
+        } catch {
+          result = null;
+        }
+      }
+
+      console.log("=== LUMEN PROCESS-AUDIO RESPONSE ===");
+      console.log("httpStatus:", response.status);
+      console.log("httpOk:", response.ok);
+      console.log("responseText:", responseText);
+      console.log("parsedResult:", result);
+      console.log("=== END PROCESS-AUDIO RESPONSE ===");
+
+      /*
+       * ============================================================
+       * 11. VALIDAR HTTP
+       * ============================================================
+       */
 
       if (!response.ok) {
         await supabase
@@ -220,9 +386,16 @@ function NewMeetingPage() {
         throw new Error(
           result?.error ||
             result?.message ||
+            responseText ||
             `No se pudo procesar el audio. Código HTTP: ${response.status}`,
         );
       }
+
+      /*
+       * ============================================================
+       * 12. VALIDAR SUCCESS
+       * ============================================================
+       */
 
       if (!result || result.success !== true) {
         await supabase
@@ -232,9 +405,16 @@ function NewMeetingPage() {
 
         throw new Error(
           result?.error ||
+            result?.message ||
             "El procesamiento del audio no confirmó éxito.",
         );
       }
+
+      /*
+       * ============================================================
+       * 13. VALIDAR QUE PROCESS-AUDIO RESPONDIÓ PARA ESTE MEETING
+       * ============================================================
+       */
 
       if (result.meeting_id !== meeting.id) {
         await supabase
@@ -247,6 +427,18 @@ function NewMeetingPage() {
         );
       }
 
+      /*
+       * ============================================================
+       * 14. PROCESAMIENTO COMPLETADO
+       * ============================================================
+       */
+
+      console.log("=== LUMEN PROCESSING SUCCESS ===");
+      console.log("meetingId:", meeting.id);
+      console.log("filePath:", filePath);
+      console.log("result:", result);
+      console.log("=== END LUMEN PROCESSING SUCCESS ===");
+
       await navigate({
         to: "/app/m/$id",
         params: {
@@ -255,6 +447,11 @@ function NewMeetingPage() {
       });
     } catch (err) {
       console.error("Create meeting error:", err);
+
+      /*
+       * Si ya existe un meetingId, intentamos dejar la reunión
+       * correctamente marcada como failed.
+       */
 
       if (meetingId) {
         await supabase
@@ -394,7 +591,7 @@ function NewMeetingPage() {
           <input
             ref={inputRef}
             type="file"
-            accept="audio/*"
+            accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.mp4"
             className="hidden"
             disabled={uploading}
             onChange={(event) => {
