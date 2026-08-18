@@ -70,7 +70,6 @@ function NewMeetingPage() {
 
     /*
      * No imponemos aquí un límite artificial pequeño.
-     *
      * El límite real de procesamiento se controla posteriormente
      * según el plan y la capacidad del backend.
      */
@@ -138,10 +137,7 @@ function NewMeetingPage() {
 
       console.log("=== LUMEN SESSION ===");
       console.log("userId:", user.id);
-      console.log(
-        "sessionTokenPresent:",
-        !!session.access_token,
-      );
+      console.log("sessionTokenPresent:", !!session.access_token);
       console.log("=== END LUMEN SESSION ===");
 
       /*
@@ -157,9 +153,9 @@ function NewMeetingPage() {
        * 3. OBTENER EXTENSIÓN ORIGINAL
        * ============================================================
        *
-       * Solo conservamos una extensión segura.
-       * El nombre original del archivo NO se utiliza como
-       * nombre del objeto de Storage.
+       * Solo utilizamos la extensión.
+       * Nunca utilizamos el nombre original completo como path
+       * de Storage.
        */
 
       const originalName = file.name || "audio";
@@ -173,28 +169,18 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 4. CREAR FILE PATH SEGURO
+       * 4. CREAR EXTENSIÓN SEGURA
        * ============================================================
        *
-       * IMPORTANTE:
+       * La expresión valida literalmente el punto inicial.
        *
-       * La ruta de Storage queda siempre basada en:
+       * Ejemplos válidos:
+       * .m4a
+       * .mp3
+       * .wav
        *
-       * user.id + meetingId + extensión segura
-       *
-       * Ejemplo:
-       *
-       * audio-files/
-       *   <userId>/
-       *     <meetingId>.m4a
-       *
-       * Nunca utilizamos:
-       *
-       * Voz_012[4].m4a
-       * Voz 009.m4a
-       * nombres con espacios
-       * corchetes
-       * caracteres especiales
+       * Si por cualquier motivo la extensión no es segura,
+       * utilizamos .m4a como fallback.
        */
 
       const safeExtension =
@@ -202,25 +188,49 @@ function NewMeetingPage() {
           ? extension
           : ".m4a";
 
+      /*
+       * ============================================================
+       * 5. CREAR FILE PATH SEGURO
+       * ============================================================
+       *
+       * IMPORTANTE:
+       *
+       * El nombre original puede ser:
+       *
+       * Voz_012[4].m4a
+       *
+       * pero Storage NUNCA recibirá ese nombre como clave.
+       *
+       * La ruta será:
+       *
+       * <userId>/<meetingId>.m4a
+       */
+
       filePath = `${user.id}/${meetingId}${safeExtension}`;
+
+      console.log("=== LUMEN CREATE MEETING ===");
+      console.log("userId:", user.id);
+      console.log("meetingId:", meetingId);
+      console.log("filePath:", filePath);
+      console.log("originalFileName:", file.name);
+      console.log("fileType:", file.type);
+      console.log("fileSize:", file.size);
+      console.log("extension:", extension);
+      console.log("safeExtension:", safeExtension);
+      console.log("=== END LUMEN CREATE MEETING ===");
 
       /*
        * ============================================================
-       * 5. CREAR UN FILE CON NOMBRE SEGURO
+       * 6. CREAR FILE CON NOMBRE SEGURO
        * ============================================================
        *
-       * Esto es importante porque no solo cambiamos el path
-       * de Storage.
+       * Esto es importante para evitar que el nombre original
+       * con corchetes, espacios u otros caracteres problemáticos
+       * llegue como nombre multipart.
        *
-       * También evitamos que el nombre original con:
+       * El contenido del audio NO se modifica.
        *
-       * [ ]
-       * espacios
-       * caracteres especiales
-       *
-       * llegue como filename del multipart.
-       *
-       * El contenido binario del audio se conserva.
+       * Solamente cambiamos el nombre del objeto File.
        */
 
       const uploadFile = new File(
@@ -232,38 +242,36 @@ function NewMeetingPage() {
         },
       );
 
-      console.log("=== LUMEN CREATE MEETING ===");
-      console.log("userId:", user.id);
-      console.log("meetingId:", meetingId);
-      console.log("originalFileName:", file.name);
-      console.log("safeFileName:", uploadFile.name);
-      console.log("filePath:", filePath);
-      console.log("originalFileType:", file.type);
-      console.log("uploadFileType:", uploadFile.type);
-      console.log("fileSize:", file.size);
-      console.log("uploadFileSize:", uploadFile.size);
-      console.log("safeExtension:", safeExtension);
-      console.log("=== END LUMEN CREATE MEETING ===");
+      console.log("=== LUMEN SAFE UPLOAD FILE ===");
+      console.log("uploadFile.name:", uploadFile.name);
+      console.log("uploadFile.type:", uploadFile.type);
+      console.log("uploadFile.size:", uploadFile.size);
+      console.log("uploadFile.lastModified:", uploadFile.lastModified);
+      console.log("=== END SAFE UPLOAD FILE ===");
 
       /*
        * ============================================================
-       * 6. SUBIR AUDIO A STORAGE
+       * 7. SUBIR AUDIO A STORAGE
        * ============================================================
        *
-       * El File enviado a Storage tiene un nombre seguro.
+       * IMPORTANTE:
        *
-       * La ruta también es segura.
+       * filePath y uploadFile.name están alineados:
        *
-       * El mismo filePath será utilizado posteriormente por
-       * process-audio.
+       * filePath:
+       * <userId>/<meetingId>.m4a
+       *
+       * uploadFile.name:
+       * <meetingId>.m4a
+       *
+       * No utilizamos file.name directamente en Storage.
        */
 
       const { data: uploadData, error: uploadError } =
         await supabase.storage
           .from("audio-files")
           .upload(filePath, uploadFile, {
-            contentType:
-              uploadFile.type || "application/octet-stream",
+            contentType: uploadFile.type,
             upsert: false,
           });
 
@@ -276,15 +284,12 @@ function NewMeetingPage() {
       console.log("=== LUMEN STORAGE UPLOAD ===");
       console.log("filePath:", filePath);
       console.log("originalFileName:", file.name);
-      console.log("safeFileName:", uploadFile.name);
-      console.log("fileType:", uploadFile.type);
-      console.log("fileSize:", uploadFile.size);
+      console.log("uploadFileName:", uploadFile.name);
+      console.log("uploadFileType:", uploadFile.type);
+      console.log("uploadFileSize:", uploadFile.size);
       console.log("uploadData:", uploadData);
       console.log("uploadError:", uploadError);
-      console.log(
-        "uploadError.message:",
-        uploadError?.message,
-      );
+      console.log("uploadError.message:", uploadError?.message);
       console.log(
         "uploadError.statusCode:",
         storageStatusCode,
@@ -307,7 +312,7 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 7. CREAR MEETING
+       * 8. CREAR MEETING
        * ============================================================
        */
 
@@ -332,7 +337,7 @@ function NewMeetingPage() {
       if (meetingError || !meeting) {
         /*
          * Storage funcionó pero meetings falló.
-         * Eliminamos el archivo huérfano.
+         * Intentamos eliminar el archivo huérfano.
          */
 
         try {
@@ -354,7 +359,7 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 8. VERIFICAR IDENTIFICADORES
+       * 9. VERIFICAR IDENTIFICADORES
        * ============================================================
        */
 
@@ -386,81 +391,32 @@ function NewMeetingPage() {
 
       /*
        * ============================================================
-       * 9. VERIFICAR QUE EL AUDIO EXISTE EN STORAGE
-       * ============================================================
-       */
-
-      const { data: storageObject, error: storageListError } =
-        await supabase.storage
-          .from("audio-files")
-          .list(user.id, {
-            search: `${meetingId}${safeExtension}`,
-            limit: 10,
-          });
-
-      console.log("=== LUMEN STORAGE VERIFY ===");
-      console.log("userId:", user.id);
-      console.log(
-        "expectedFile:",
-        `${meetingId}${safeExtension}`,
-      );
-      console.log("storageObject:", storageObject);
-      console.log(
-        "storageListError:",
-        storageListError,
-      );
-      console.log("=== END STORAGE VERIFY ===");
-
-      if (storageListError) {
-        await supabase
-          .from("meetings")
-          .update({
-            status: "failed",
-          })
-          .eq("id", meetingId);
-
-        throw new Error(
-          `El audio se subió, pero no se pudo verificar en Storage: ${storageListError.message}`,
-        );
-      }
-
-      const storageFileExists =
-        storageObject?.some(
-          (item) =>
-            item.name === `${meetingId}${safeExtension}`,
-        ) ?? false;
-
-      if (!storageFileExists) {
-        await supabase
-          .from("meetings")
-          .update({
-            status: "failed",
-          })
-          .eq("id", meetingId);
-
-        throw new Error(
-          "El audio aparentemente se subió, pero no se encontró en Storage con la ruta esperada.",
-        );
-      }
-
-      /*
-       * ============================================================
        * 10. LLAMAR A PROCESS-AUDIO
        * ============================================================
        *
        * IMPORTANTE:
        *
-       * filePath NO se modifica.
+       * Se utiliza EXACTAMENTE el mismo filePath utilizado
+       * en Storage.upload().
        *
-       * process-audio recibe exactamente la misma ruta que
-       * utilizamos para subir el archivo.
+       * process-audio recibirá:
+       *
+       * {
+       *   meeting_id: meeting.id,
+       *   filePath
+       * }
+       *
+       * No se envía el nombre original del archivo.
        */
 
       console.log("=== LUMEN PROCESS-AUDIO INVOKE ===");
       console.log("function:", "process-audio");
       console.log("meeting_id:", meeting.id);
       console.log("filePath:", filePath);
-      console.log("sessionTokenPresent:", !!session.access_token);
+      console.log(
+        "sessionTokenPresent:",
+        !!session.access_token,
+      );
       console.log("=== END PROCESS-AUDIO INVOKE ===");
 
       const {
