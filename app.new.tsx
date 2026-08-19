@@ -15,6 +15,34 @@ export const Route = createFileRoute("/_authenticated/app/new")({
   component: NewMeetingPage,
 });
 
+function getFileExtension(fileName: string): string {
+  const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] || "m4a";
+}
+
+function getContentType(file: File): string {
+  if (file.type && file.type.startsWith("audio/")) {
+    return file.type;
+  }
+
+  const extension = getFileExtension(file.name);
+
+  const mimeTypes: Record<string, string> = {
+    m4a: "audio/mp4",
+    mp4: "audio/mp4",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    webm: "audio/webm",
+    ogg: "audio/ogg",
+    oga: "audio/ogg",
+    opus: "audio/ogg",
+    aac: "audio/aac",
+    flac: "audio/flac",
+  };
+
+  return mimeTypes[extension] || "application/octet-stream";
+}
+
 function NewMeetingPage() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -34,6 +62,11 @@ function NewMeetingPage() {
 
     if (!selectedFile.type.startsWith("audio/")) {
       setError("Selecciona un archivo de audio válido.");
+      return;
+    }
+
+    if (selectedFile.size <= 0) {
+      setError("El archivo de audio está vacío.");
       return;
     }
 
@@ -57,6 +90,9 @@ function NewMeetingPage() {
 
     setUploading(true);
 
+    let meetingId: string | null = null;
+    let filePath: string | null = null;
+
     try {
       const {
         data: { user },
@@ -64,50 +100,121 @@ function NewMeetingPage() {
       } = await supabase.auth.getUser();
 
       if (authError || !user) {
-        throw new Error("Tu sesión ha expirado. Inicia sesión nuevamente.");
+        throw new Error(
+          "Tu sesión ha expirado. Inicia sesión nuevamente.",
+        );
       }
 
-      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-      const filePath = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+      /*
+       * Generamos un ID único para la reunión.
+       */
+      meetingId = crypto.randomUUID();
 
+      /*
+       * Nunca usamos el nombre original como parte
+       * de la ruta de Storage.
+       *
+       * Ejemplo:
+       * userId/meetingId.m4a
+       */
+      const extension = getFileExtension(file.name);
+      filePath = `${user.id}/${meetingId}.${extension}`;
+
+      const contentType = getContentType(file);
+
+      /*
+       * 1. Crear la reunión.
+       */
+      const { error: meetingError } = await supabase
+        .from("meetings")
+        .insert({
+          id: meetingId,
+          user_id: user.id,
+          title: title.trim() || "Nueva reunión",
+          status: "uploading",
+        });
+
+      if (meetingError) {
+        throw new Error(
+          `No se pudo crear la reunión: ${meetingError.message}`,
+        );
+      }
+
+      /*
+       * 2. Subir el audio binario real.
+       */
       const { error: uploadError } = await supabase.storage
         .from("audio-files")
         .upload(filePath, file, {
-          contentType: file.type || "audio/mpeg",
+          contentType,
           upsert: false,
         });
 
       if (uploadError) {
-        throw new Error(uploadError.message);
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meetingId)
+          .eq("user_id", user.id);
+
+        throw new Error(
+          `Error subiendo el audio a Storage: ${uploadError.message}`,
+        );
       }
 
-      const { data: meeting, error: meetingError } = await supabase
+      /*
+       * 3. Marcar la reunión como processing.
+       */
+      const { error: processingError } = await supabase
         .from("meetings")
-        .insert({
-          user_id: user.id,
-          title: title.trim() || "Nueva reunión",
+        .update({
           status: "processing",
         })
-        .select("id")
-        .single();
+        .eq("id", meetingId)
+        .eq("user_id", user.id);
 
-      if (meetingError || !meeting) {
+      if (processingError) {
+        await supabase.storage
+          .from("audio-files")
+          .remove([filePath]);
+
+        await supabase
+          .from("meetings")
+          .update({
+            status: "failed",
+          })
+          .eq("id", meetingId)
+          .eq("user_id", user.id);
+
         throw new Error(
-          meetingError?.message || "No se pudo crear la reunión.",
+          `No se pudo iniciar el procesamiento: ${processingError.message}`,
         );
       }
 
       setMessage("Audio subido. Procesando reunión…");
 
+      /*
+       * 4. Obtener el JWT actual.
+       */
       const {
         data: { session },
+        error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (!session?.access_token) {
-        throw new Error("No se encontró el token de autenticación.");
+      if (sessionError || !session?.access_token) {
+        throw new Error(
+          "No se encontró un token de autenticación válido.",
+        );
       }
 
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-audio`;
+      /*
+       * 5. Llamar directamente a process-audio.
+       */
+      const functionUrl =
+        `${import.meta.env.VITE_SUPABASE_URL}` +
+        "/functions/v1/process-audio";
 
       const response = await fetch(functionUrl, {
         method: "POST",
@@ -117,7 +224,7 @@ function NewMeetingPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          meeting_id: meeting.id,
+          meeting_id: meetingId,
           filePath,
         }),
       });
@@ -128,16 +235,57 @@ function NewMeetingPage() {
         throw new Error(
           result?.error ||
             result?.message ||
-            "No se pudo procesar el audio.",
+            `process-audio respondió HTTP ${response.status}.`,
         );
       }
 
+      if (!result?.success) {
+        throw new Error(
+          result?.error ||
+            "process-audio no confirmó el procesamiento.",
+        );
+      }
+
+      /*
+       * 6. Ir al detalle de la reunión.
+       */
       await navigate({
         to: "/app/m/$id",
-        params: { id: meeting.id },
+        params: {
+          id: meetingId,
+        },
       });
     } catch (err) {
-      console.error(err);
+      console.error("CREATE MEETING ERROR:", err);
+
+      if (meetingId) {
+        try {
+          await supabase
+            .from("meetings")
+            .update({
+              status: "failed",
+            })
+            .eq("id", meetingId);
+        } catch (statusError) {
+          console.error(
+            "Error actualizando meeting a failed:",
+            statusError,
+          );
+        }
+      }
+
+      if (filePath) {
+        try {
+          await supabase.storage
+            .from("audio-files")
+            .remove([filePath]);
+        } catch (storageCleanupError) {
+          console.error(
+            "Error limpiando audio:",
+            storageCleanupError,
+          );
+        }
+      }
 
       setError(
         err instanceof Error
@@ -210,7 +358,9 @@ function NewMeetingPage() {
 
           {file ? (
             <>
-              <h2 className="mt-5 text-sm font-semibold">{file.name}</h2>
+              <h2 className="mt-5 text-sm font-semibold">
+                {file.name}
+              </h2>
 
               <p className="mt-1 text-xs text-muted-foreground">
                 {(file.size / 1024 / 1024).toFixed(2)} MB
@@ -271,7 +421,9 @@ function NewMeetingPage() {
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="flex items-center gap-2">
               <FileAudio className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Formatos de audio</span>
+              <span className="text-sm font-medium">
+                Formatos de audio
+              </span>
             </div>
 
             <p className="mt-2 text-xs text-muted-foreground">
