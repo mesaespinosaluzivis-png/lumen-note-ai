@@ -12,71 +12,300 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Inspect repository structure
+        shell: bash
         run: |
-          echo "========================================"
-          echo "RAIZ DEL CHECKOUT"
-          echo "========================================"
+          set +e
+
+          echo "=================================================="
+          echo "LUMEN NOTE AI - AUDITORÍA COMPLETA"
+          echo "=================================================="
+          echo ""
+
+          echo "=================================================="
+          echo "1. RAÍZ REAL DEL CHECKOUT"
+          echo "=================================================="
           pwd
           ls -la
-
           echo ""
-          echo "========================================"
-          echo "ARBOLES DE DIRECTORIOS"
-          echo "========================================"
-          find . -maxdepth 3 -type d \
-            -not -path "*/.git/*" \
-            -not -path "*/node_modules/*" \
+
+          echo "=================================================="
+          echo "2. ÁRBOL DE DIRECTORIOS"
+          echo "=================================================="
+          find . -type d \
+            -not -path "./.git*" \
+            -not -path "./node_modules*" \
             | sort
-
           echo ""
-          echo "========================================"
-          echo "TODOS LOS PACKAGE.JSON"
-          echo "========================================"
-          find . -name "package.json" \
-            -not -path "*/node_modules/*" \
+
+          echo "=================================================="
+          echo "3. TODOS LOS ARCHIVOS DEL REPOSITORIO"
+          echo "=================================================="
+          find . -type f \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            | sort
+          echo ""
+
+          echo "=================================================="
+          echo "4. TODOS LOS PACKAGE.JSON"
+          echo "=================================================="
+          find . -type f -name "package.json" \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
             -print
-
           echo ""
-          echo "========================================"
-          echo "TODOS LOS ARCHIVOS DE CONFIGURACION"
-          echo "========================================"
-          find . -maxdepth 4 -type f \( \
-            -name "package.json" -o \
+
+          echo "=================================================="
+          echo "5. PACKAGE-LOCK / YARN / PNPM"
+          echo "=================================================="
+          find . -type f \( \
             -name "package-lock.json" -o \
             -name "npm-shrinkwrap.json" -o \
             -name "yarn.lock" -o \
-            -name "pnpm-lock.yaml" -o \
-            -name "vite.config.*" -o \
-            -name "tsconfig.json" \
+            -name "pnpm-lock.yaml" \
           \) \
-            -not -path "*/node_modules/*" \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
             -print
-
           echo ""
-          echo "========================================"
-          echo "BUSQUEDA DE createClient"
-          echo "========================================"
+
+          echo "=================================================="
+          echo "6. ARCHIVOS DE CONFIGURACIÓN"
+          echo "=================================================="
+          find . -type f \( \
+            -name "vite.config.*" -o \
+            -name "tsconfig*.json" -o \
+            -name "tailwind.config.*" -o \
+            -name "postcss.config.*" -o \
+            -name "tanstack.config.*" -o \
+            -name "*.config.js" -o \
+            -name "*.config.ts" -o \
+            -name "*.config.mjs" -o \
+            -name "*.config.cjs" \
+          \) \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            -print
+          echo ""
+
+          echo "=================================================="
+          echo "7. BUSQUEDA REAL DE createClient"
+          echo "=================================================="
+          grep -RniE \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "createClient" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "8. BUSQUEDA REAL DE @supabase/supabase-js"
+          echo "=================================================="
           grep -Rni \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
-            --exclude="*.lock" \
-            "createClient" . || true
-
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "@supabase/supabase-js" . \
+            || true
           echo ""
-          echo "========================================"
-          echo "BUSQUEDA DE @supabase/supabase-js"
-          echo "========================================"
+
+          echo "=================================================="
+          echo "9. BUSQUEDA DE IMPORTS DE SUPABASE"
+          echo "=================================================="
+          grep -RniE \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            'from ["'\''].*supabase.*["'\'']|import .*supabase' . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "10. BUSQUEDA DE src/integrations/supabase"
+          echo "=================================================="
+          find . \
+            -path "*/src/integrations/supabase*" \
+            -not -path "./.git/*" \
+            -print
+          echo ""
+
+          echo "=================================================="
+          echo "11. BUSQUEDA DE @/integrations/supabase"
+          echo "=================================================="
           grep -Rni \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
-            "@supabase/supabase-js" . || true
-
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "@/integrations/supabase" . \
+            || true
           echo ""
-          echo "========================================"
-          echo "BUSQUEDA DE VITE_SUPABASE_URL"
-          echo "========================================"
+
+          echo "=================================================="
+          echo "12. BUSQUEDA DE VITE_SUPABASE_URL"
+          echo "=================================================="
           grep -Rni \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
-            "VITE_SUPABASE_URL" . || true
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "VITE_SUPABASE_URL" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "13. BUSQUEDA DE VITE_SUPABASE_ANON_KEY"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "VITE_SUPABASE_ANON_KEY" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "14. BUSQUEDA DE VITE_SUPABASE_PUBLISHABLE_KEY"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "VITE_SUPABASE_PUBLISHABLE_KEY" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "15. BUSQUEDA DE SUPABASE_URL"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "SUPABASE_URL" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "16. BUSQUEDA DE supabase.auth"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "supabase.auth" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "17. BUSQUEDA DE functions.invoke"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "functions.invoke" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "18. BUSQUEDA DE process-audio"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "process-audio" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "19. RUTAS app.new"
+          echo "=================================================="
+          find . -type f \
+            \( -name "*app.new*" -o -name "*app*m*id*" \) \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            -print
+          echo ""
+
+          echo "=================================================="
+          echo "20. createFileRoute"
+          echo "=================================================="
+          grep -Rni \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            "createFileRoute" . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "21. ALIAS @/ Y CONFIGURACIÓN"
+          echo "=================================================="
+          grep -RniE \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude="main.yml" \
+            --exclude="main.yaml" \
+            '"@/":|@/|paths|baseUrl|vite-tsconfig-paths' . \
+            || true
+          echo ""
+
+          echo "=================================================="
+          echo "22. ARCHIVOS .TS / .TSX RELACIONADOS CON SUPABASE"
+          echo "=================================================="
+          find . -type f \
+            \( -name "*.ts" -o -name "*.tsx" \) \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*" \
+            | sort \
+            | while read -r file; do
+              if grep -qiE "supabase|createClient" "$file"; then
+                echo "$file"
+              fi
+            done
+          echo ""
+
+          echo "=================================================="
+          echo "23. CONTENIDO DE ARCHIVOS package.json"
+          echo "=================================================="
+          PACKAGE_FILES=$(find . -type f -name "package.json" \
+            -not -path "./.git/*" \
+            -not -path "./node_modules/*")
+
+          if [ -n "$PACKAGE_FILES" ]; then
+            while IFS= read -r file; do
+              echo "----- $file -----"
+              cat "$file"
+              echo ""
+            done <<< "$PACKAGE_FILES"
+          else
+            echo "NO SE ENCONTRÓ NINGÚN package.json."
+          fi
+          echo ""
+
+          echo "=================================================="
+          echo "24. VERIFICACIÓN FINAL"
+          echo "=================================================="
+          echo "Auditoría terminada."
+          echo "Este workflow NO modifica el código de Lumen."
+          echo "Este workflow NO instala dependencias."
+          echo "Este workflow NO ejecuta npm install."
+          echo "Este workflow NO ejecuta npm build."
+          echo "Este workflow solo inspecciona el repositorio."
+          echo ""
+
+          exit 0
 
