@@ -1,0 +1,50 @@
+name: Lumen Note AI - Preview Audit
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preview-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Show project structure
+        run: |
+          echo "===== ROUTES ====="
+          find src/routes -maxdepth 3 -type f -print 2>/dev/null || true
+
+          echo ""
+          echo "===== SUPABASE INTEGRATION ====="
+          find src/integrations -maxdepth 4 -type f -print 2>/dev/null || true
+
+          echo ""
+          echo "===== CREATE CLIENT REFERENCES ====="
+          grep -Rni "createClient" src --exclude-dir=node_modules || true
+
+          echo ""
+          echo "===== SUPABASE JS REFERENCES ====="
+          grep -Rni "@supabase/supabase-js" src --exclude-dir=node_modules || true
+
+          echo ""
+          echo "===== SUPABASE ENV REFERENCES ====="
+          grep -RniE "VITE_SUPABASE_URL|VITE_SUPABASE_ANON_KEY|VITE_SUPABASE_PUBLISHABLE_KEY" src --exclude-dir=node_modules || true
+
+          echo ""
+          echo "===== PROCESS AUDIO REFERENCES ====="
+          grep -Rni "process-audio" src --exclude-dir=node_modules || true
+
+      - name: TypeScript and production build
+        run: npm run build
+
