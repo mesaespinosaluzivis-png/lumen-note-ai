@@ -2,9 +2,13 @@ name: Lumen Note AI - Preview Audit
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   preview-audit:
+    name: Preview Audit
     runs-on: ubuntu-latest
 
     steps:
@@ -14,298 +18,368 @@ jobs:
       - name: Inspect repository structure
         shell: bash
         run: |
-          set +e
+          set -u
 
           echo "=================================================="
-          echo "LUMEN NOTE AI - AUDITORÍA COMPLETA"
+          echo "LUMEN NOTE AI - PREVIEW AUDIT"
           echo "=================================================="
           echo ""
 
           echo "=================================================="
-          echo "1. RAÍZ REAL DEL CHECKOUT"
+          echo "1. RAIZ DEL REPOSITORIO"
           echo "=================================================="
           pwd
+          echo ""
+
           ls -la
           echo ""
 
           echo "=================================================="
-          echo "2. ÁRBOL DE DIRECTORIOS"
+          echo "2. ARCHIVOS TRACKED DEL REPOSITORIO"
           echo "=================================================="
-          find . -type d \
-            -not -path "./.git*" \
-            -not -path "./node_modules*" \
-            | sort
+          git ls-files | sort
           echo ""
 
           echo "=================================================="
-          echo "3. TODOS LOS ARCHIVOS DEL REPOSITORIO"
+          echo "3. ESTRUCTURA DE DIRECTORIOS"
           echo "=================================================="
-          find . -type f \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
+          find . -type d \
+            -not -path './.git*' \
+            -not -path './.github/workflows*' \
             | sort
           echo ""
 
           echo "=================================================="
           echo "4. TODOS LOS PACKAGE.JSON"
           echo "=================================================="
-          find . -type f -name "package.json" \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
-            -print
+
+          PACKAGE_FILES="$(git ls-files | grep -E '(^|/)package\.json$' || true)"
+
+          if [ -n "$PACKAGE_FILES" ]; then
+            echo "$PACKAGE_FILES"
+          else
+            echo "RESULTADO: NO SE ENCONTRO NINGUN package.json ENTRE LOS ARCHIVOS TRACKED."
+          fi
+
           echo ""
 
           echo "=================================================="
-          echo "5. PACKAGE-LOCK / YARN / PNPM"
+          echo "5. CONTENIDO DE LOS PACKAGE.JSON"
           echo "=================================================="
-          find . -type f \( \
-            -name "package-lock.json" -o \
-            -name "npm-shrinkwrap.json" -o \
-            -name "yarn.lock" -o \
-            -name "pnpm-lock.yaml" \
-          \) \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
-            -print
-          echo ""
-
-          echo "=================================================="
-          echo "6. ARCHIVOS DE CONFIGURACIÓN"
-          echo "=================================================="
-          find . -type f \( \
-            -name "vite.config.*" -o \
-            -name "tsconfig*.json" -o \
-            -name "tailwind.config.*" -o \
-            -name "postcss.config.*" -o \
-            -name "tanstack.config.*" -o \
-            -name "*.config.js" -o \
-            -name "*.config.ts" -o \
-            -name "*.config.mjs" -o \
-            -name "*.config.cjs" \
-          \) \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
-            -print
-          echo ""
-
-          echo "=================================================="
-          echo "7. BUSQUEDA REAL DE createClient"
-          echo "=================================================="
-          grep -RniE \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "createClient" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "8. BUSQUEDA REAL DE @supabase/supabase-js"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "@supabase/supabase-js" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "9. BUSQUEDA DE IMPORTS DE SUPABASE"
-          echo "=================================================="
-          grep -RniE \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            'from ["'\''].*supabase.*["'\'']|import .*supabase' . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "10. BUSQUEDA DE src/integrations/supabase"
-          echo "=================================================="
-          find . \
-            -path "*/src/integrations/supabase*" \
-            -not -path "./.git/*" \
-            -print
-          echo ""
-
-          echo "=================================================="
-          echo "11. BUSQUEDA DE @/integrations/supabase"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "@/integrations/supabase" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "12. BUSQUEDA DE VITE_SUPABASE_URL"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "VITE_SUPABASE_URL" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "13. BUSQUEDA DE VITE_SUPABASE_ANON_KEY"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "VITE_SUPABASE_ANON_KEY" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "14. BUSQUEDA DE VITE_SUPABASE_PUBLISHABLE_KEY"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "VITE_SUPABASE_PUBLISHABLE_KEY" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "15. BUSQUEDA DE SUPABASE_URL"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "SUPABASE_URL" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "16. BUSQUEDA DE supabase.auth"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "supabase.auth" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "17. BUSQUEDA DE functions.invoke"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "functions.invoke" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "18. BUSQUEDA DE process-audio"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "process-audio" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "19. RUTAS app.new"
-          echo "=================================================="
-          find . -type f \
-            \( -name "*app.new*" -o -name "*app*m*id*" \) \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
-            -print
-          echo ""
-
-          echo "=================================================="
-          echo "20. createFileRoute"
-          echo "=================================================="
-          grep -Rni \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            "createFileRoute" . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "21. ALIAS @/ Y CONFIGURACIÓN"
-          echo "=================================================="
-          grep -RniE \
-            --exclude-dir=.git \
-            --exclude-dir=node_modules \
-            --exclude="main.yml" \
-            --exclude="main.yaml" \
-            '"@/":|@/|paths|baseUrl|vite-tsconfig-paths' . \
-            || true
-          echo ""
-
-          echo "=================================================="
-          echo "22. ARCHIVOS .TS / .TSX RELACIONADOS CON SUPABASE"
-          echo "=================================================="
-          find . -type f \
-            \( -name "*.ts" -o -name "*.tsx" \) \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*" \
-            | sort \
-            | while read -r file; do
-              if grep -qiE "supabase|createClient" "$file"; then
-                echo "$file"
-              fi
-            done
-          echo ""
-
-          echo "=================================================="
-          echo "23. CONTENIDO DE ARCHIVOS package.json"
-          echo "=================================================="
-          PACKAGE_FILES=$(find . -type f -name "package.json" \
-            -not -path "./.git/*" \
-            -not -path "./node_modules/*")
 
           if [ -n "$PACKAGE_FILES" ]; then
             while IFS= read -r file; do
-              echo "----- $file -----"
-              cat "$file"
+              [ -z "$file" ] && continue
+
               echo ""
+              echo "----- $file -----"
+
+              if [ -f "$file" ]; then
+                cat "$file"
+              else
+                echo "El archivo fue listado pero no existe físicamente."
+              fi
             done <<< "$PACKAGE_FILES"
           else
-            echo "NO SE ENCONTRÓ NINGÚN package.json."
+            echo "No hay package.json para mostrar."
           fi
+
           echo ""
 
           echo "=================================================="
-          echo "24. VERIFICACIÓN FINAL"
+          echo "6. ARCHIVOS DE CONFIGURACION"
           echo "=================================================="
-          echo "Auditoría terminada."
-          echo "Este workflow NO modifica el código de Lumen."
-          echo "Este workflow NO instala dependencias."
-          echo "Este workflow NO ejecuta npm install."
-          echo "Este workflow NO ejecuta npm build."
-          echo "Este workflow solo inspecciona el repositorio."
+
+          git ls-files | grep -E \
+            '(^|/)(vite|tsconfig|jsconfig|package-lock|npm-shrinkwrap|yarn\.lock|pnpm-lock|bun\.lock|deno|tailwind|postcss|eslint|prettier|tanstack|router).*' \
+            || true
+
           echo ""
 
-          exit 0
+          echo "=================================================="
+          echo "7. BUSQUEDA DE createClient"
+          echo "=================================================="
+
+          CREATE_CLIENT_RESULTS="$(
+            git grep -n -I -E 'createClient[[:space:]]*\(' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$CREATE_CLIENT_RESULTS" ]; then
+            echo "$CREATE_CLIENT_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO createClient EN LOS ARCHIVOS TRACKED."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "8. BUSQUEDA DE @supabase/supabase-js"
+          echo "=================================================="
+
+          SUPABASE_PACKAGE_RESULTS="$(
+            git grep -n -I '@supabase/supabase-js' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$SUPABASE_PACKAGE_RESULTS" ]; then
+            echo "$SUPABASE_PACKAGE_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO @supabase/supabase-js EN LOS ARCHIVOS TRACKED."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "9. BUSQUEDA DE src/integrations/supabase"
+          echo "=================================================="
+
+          INTEGRATION_FILES="$(
+            git ls-files | grep -E '^src/integrations/supabase(/|$)' || true
+          )"
+
+          if [ -n "$INTEGRATION_FILES" ]; then
+            echo "$INTEGRATION_FILES"
+          else
+            echo "RESULTADO: NO SE ENCONTRO src/integrations/supabase ENTRE LOS ARCHIVOS TRACKED."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "10. BUSQUEDA DE IMPORTS DESDE @/integrations"
+          echo "=================================================="
+
+          INTEGRATION_IMPORTS="$(
+            git grep -n -I -E '@/integrations/[^"'\'' ]+' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$INTEGRATION_IMPORTS" ]; then
+            echo "$INTEGRATION_IMPORTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON IMPORTS @/integrations."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "11. BUSQUEDA DE VITE_SUPABASE_URL"
+          echo "=================================================="
+
+          VITE_URL_RESULTS="$(
+            git grep -n -I 'VITE_SUPABASE_URL' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$VITE_URL_RESULTS" ]; then
+            echo "$VITE_URL_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO VITE_SUPABASE_URL."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "12. BUSQUEDA DE VITE_SUPABASE_ANON_KEY"
+          echo "=================================================="
+
+          VITE_ANON_RESULTS="$(
+            git grep -n -I 'VITE_SUPABASE_ANON_KEY' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$VITE_ANON_RESULTS" ]; then
+            echo "$VITE_ANON_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO VITE_SUPABASE_ANON_KEY."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "13. BUSQUEDA DE VITE_SUPABASE_PUBLISHABLE_KEY"
+          echo "=================================================="
+
+          VITE_PUBLISHABLE_RESULTS="$(
+            git grep -n -I 'VITE_SUPABASE_PUBLISHABLE_KEY' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$VITE_PUBLISHABLE_RESULTS" ]; then
+            echo "$VITE_PUBLISHABLE_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO VITE_SUPABASE_PUBLISHABLE_KEY."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "14. BUSQUEDA DE supabase.auth"
+          echo "=================================================="
+
+          AUTH_RESULTS="$(
+            git grep -n -I -E 'supabase\.auth|auth\.getSession|auth\.getUser' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$AUTH_RESULTS" ]; then
+            echo "$AUTH_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON REFERENCIAS DE AUTENTICACION SUPABASE."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "15. BUSQUEDA DE supabase.storage"
+          echo "=================================================="
+
+          STORAGE_RESULTS="$(
+            git grep -n -I 'supabase.storage' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$STORAGE_RESULTS" ]; then
+            echo "$STORAGE_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON REFERENCIAS DE supabase.storage."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "16. BUSQUEDA DE process-audio"
+          echo "=================================================="
+
+          PROCESS_AUDIO_RESULTS="$(
+            git grep -n -I 'process-audio' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$PROCESS_AUDIO_RESULTS" ]; then
+            echo "$PROCESS_AUDIO_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO process-audio."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "17. ARCHIVOS app.new.tsx"
+          echo "=================================================="
+
+          APP_NEW_FILES="$(
+            git ls-files | grep -E '(^|/)(_|authenticated\.)?app\.new\.tsx$|(^|/)app\.new\.tsx$' || true
+          )"
+
+          if [ -n "$APP_NEW_FILES" ]; then
+            echo "$APP_NEW_FILES"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON ARCHIVOS app.new.tsx."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "18. IMPORTS DE SUPABASE DESDE LOS DOS app.new.tsx"
+          echo "=================================================="
+
+          APP_NEW_IMPORTS="$(
+            git grep -n -I -E 'from[[:space:]]+["'\'']@/integrations/supabase|from[[:space:]]+["'\'']@supabase/supabase-js' -- \
+            '*app.new.tsx' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$APP_NEW_IMPORTS" ]; then
+            echo "$APP_NEW_IMPORTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON ESOS IMPORTS EN app.new.tsx."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "19. BUSQUEDA DE createClient EN TODO EL CODIGO"
+          echo "=================================================="
+
+          git grep -n -I 'createClient' -- \
+            '*.ts' \
+            '*.tsx' \
+            '*.js' \
+            '*.jsx' \
+            '*.mjs' \
+            '*.cjs' \
+            ':!/.github/workflows/main.yml' \
+            || true
+
+          echo ""
+
+          echo "=================================================="
+          echo "20. ARCHIVOS QUE REFERENCIAN integrations/supabase/client"
+          echo "=================================================="
+
+          CLIENT_IMPORT_RESULTS="$(
+            git grep -n -I 'integrations/supabase/client' -- . \
+            ':!/.git' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$CLIENT_IMPORT_RESULTS" ]; then
+            echo "$CLIENT_IMPORT_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRO integrations/supabase/client."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "21. ARCHIVOS DE RUTAS TANSTACK"
+          echo "=================================================="
+
+          ROUTE_RESULTS="$(
+            git grep -n -I -E 'createFileRoute|createRootRoute|createRoute' -- \
+            '*.ts' \
+            '*.tsx' \
+            ':!/.github/workflows/main.yml' \
+            || true
+          )"
+
+          if [ -n "$ROUTE_RESULTS" ]; then
+            echo "$ROUTE_RESULTS"
+          else
+            echo "RESULTADO: NO SE ENCONTRARON DEFINICIONES DE RUTAS."
+          fi
+
+          echo ""
+
+          echo "=================================================="
+          echo "22. FIN DE AUDITORIA"
+          echo "=================================================="
+          echo "La auditoría terminó sin instalar dependencias."
+          echo "No se ejecutó npm install."
+          echo "No se ejecutó npm run build."
+          echo "No se modificó ningún archivo del proyecto."
+          echo "=================================================="
+
 
