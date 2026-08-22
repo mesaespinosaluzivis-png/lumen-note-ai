@@ -11,10 +11,6 @@ jobs:
     name: Build Lumen Note AI
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: lumen-frontend
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,4 +36,6 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+
 
