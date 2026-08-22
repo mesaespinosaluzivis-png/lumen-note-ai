@@ -11,6 +11,10 @@ jobs:
     name: Build Lumen Note AI
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: lumen-frontend
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,6 +23,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Verify frontend files
+        run: |
+          test -f package.json
+          test -f vite.config.ts
+          test -f tsconfig.json
+          test -f index.html
+          test -f src/main.tsx
 
       - name: Install dependencies
         run: npm install
