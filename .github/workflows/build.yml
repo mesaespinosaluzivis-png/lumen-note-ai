@@ -1,3 +1,4 @@
+
 name: Lumen Note AI - Build
 
 on:
@@ -11,6 +12,10 @@ jobs:
     name: Build Lumen Note AI
     runs-on: ubuntu-latest
 
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,16 +25,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Verify frontend files
+      - name: Verify project root
         run: |
           test -f package.json
           test -f vite.config.ts
           test -f tsconfig.json
+          test -f tsconfig.node.json
+          test -f tailwind.config.js
+          test -f postcss.config.js
           test -f index.html
           test -f src/main.tsx
+          test -d src
+
+      - name: Verify package scripts
+        run: |
+          node -e "const p=require('./package.json'); if (!p.scripts || p.scripts.build !== 'tsc && vite build') process.exit(1)"
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -37,5 +50,8 @@ jobs:
       - name: Build application
         run: npm run build
 
-
+      - name: Verify production output
+        run: |
+          test -d dist
+          test -f dist/index.html
 
