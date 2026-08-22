@@ -16,32 +16,25 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: '24'
 
-      - name: Verify project root
-        shell: bash
+      - name: Show repository root
         run: |
-          test -f package.json
-          test -f package-lock.json
-          test -f tsconfig.json
-          test -f vite.config.ts
-          test -f index.html
-          test -d src
-          test -f src/main.tsx
+          pwd
+          ls -la
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build application
+      - name: Build Lumen Note AI
         run: npm run build
 
-      - name: Verify Vite output
-        shell: bash
+      - name: Verify Vite build
         run: |
           test -d dist
           test -f dist/index.html
@@ -51,4 +44,5 @@ jobs:
         with:
           name: lumen-note-ai-dist
           path: dist/
+
 
